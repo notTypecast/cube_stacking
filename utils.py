@@ -76,3 +76,17 @@ def isclose(a, b, rel_tol=1e-09, abs_tol=0.0):
     Used to compare floats for almost-equality
     """
     return abs(a-b) <= max(rel_tol * max(abs(a), abs(b)), abs_tol)
+
+def angle_wrap(a):
+    """
+    Wraps an angle to [-pi, pi)
+    """
+    return (a + np.pi) % (2 * np.pi) - np.pi
+
+def angle_wrap_pi(a):
+    """
+    Wraps an angle to [-pi/2, pi/2]
+    """
+    a = angle_wrap(a)
+
+    return np.arctan2(np.sin(a), abs(np.cos(a)))

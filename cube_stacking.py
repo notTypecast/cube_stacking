@@ -1,26 +1,33 @@
+import utils
 import numpy as np
 import RobotDART as rd
 import BehaviorTree as bt
 from dartpy.math import Isometry3
 
-from utils import create_grid, create_problems, damped_pseudoinverse, create_transformation_matrix, isom3_to_np, calc_error, isclose
-
 # matrix to rotate 90 degrees in z axis
-rotate_pi_z = np.array(((0, -1, 0), (1, 0, 0), (0, 0, 1)))
+rotate_90_z = np.array(((0, -1, 0), (1, 0, 0), (0, 0, 1)))
 
 # rotation matrix for regular hold of end effector
 R_REG_HOLD = np.array((
-    (-1, 1, 0),
-    (1, -1, 0),
+    (0, 1, 0),
+    (1, 0, 0),
     (0, 0, -1)
 ))
 
 # regular hold, rotated by 90 degrees
-R_ROT_HOLD = R_REG_HOLD @ rotate_pi_z
+R_ROT_HOLD = R_REG_HOLD @ rotate_90_z
 
-ERROR_THRESHOLD = 0.01 # error under which to stop controller
-STACK_POSITION = (0.4, 0.45) # (x, y) of stack
-STACK_POSITION_MATRIX = create_transformation_matrix(R_REG_HOLD, np.array((*STACK_POSITION, 0.15))) # desired transformation matrix with respect to wf of end effector when above stack location
+# rotation matrix: a (in radians) around z axis
+Rot_Z = lambda a: np.array((
+    (np.cos(a), -np.sin(a), 0),
+    (np.sin(a), np.cos(a), 0),
+    (0, 0, 1)
+))
+
+ERROR_THRESHOLD_LOW = 0.005 # low threshold, precise movement
+ERROR_THRESHOLD_HIGH = 0.1 # high threshold, fast movement
+STACK_POSITION = (0.4, 0.5) # (x, y) of stack
+STACK_POSITION_MATRIX = utils.create_transformation_matrix(R_REG_HOLD, np.array((*STACK_POSITION, 0.15))) # desired transformation matrix with respect to wf of end effector when above stack location
 BOX_END_POS_MATRICES_I3 = [] # matrices of corresponding desired positions before leaving each box, respectively
 
 for i in range(3):
@@ -52,7 +59,7 @@ robot.set_actuator_types("servo") # you can use torque here
 #########################################################
 # DO NOT CHANGE ANYTHING IN HERE
 # Create boxes
-box_positions = create_grid()
+box_positions = utils.create_grid()
 
 box_size = [0.04, 0.04, 0.04]
 
@@ -60,7 +67,8 @@ box_size = [0.04, 0.04, 0.04]
 # Random cube position
 red_box_pt = np.random.choice(len(box_positions))
 
-#box_pose = [0., 0., 0., 0.35, 0.3, box_size[2] / 2.0]
+#box_pose = [0., 0., 0., 0.35, 0.3, box_size[2] / 2.0] # EDGE CASE: next to each other
+#box_pose = [0., 0., 13*np.pi/3, box_positions[red_box_pt][0], box_positions[red_box_pt][1], box_size[2] / 2.0] # EDGE CASE: rotated
 box_pose = [0., 0., 0., box_positions[red_box_pt][0], box_positions[red_box_pt][1], box_size[2] / 2.0]
 red_box = rd.Robot.create_box(box_size, box_pose, "free", 0.1, [0.9, 0.1, 0.1, 1.0], "red_box")
 
@@ -70,7 +78,8 @@ green_box_pt = np.random.choice(len(box_positions))
 while green_box_pt == red_box_pt:
     green_box_pt = np.random.choice(len(box_positions))
 
-#box_pose = [0., 0., 0., 0.35, 0.25, box_size[2] / 2.0]
+#box_pose = [0., 0., 0., 0.35, 0.25, box_size[2] / 2.0] # EDGE CASE: next to each other
+#box_pose = [np.pi/2, 5*np.pi/4, np.pi/4, box_positions[green_box_pt][0], box_positions[green_box_pt][1], 4*box_size[2] / 2.0] # EDGE CASE: rotated
 box_pose = [0., 0., 0., box_positions[green_box_pt][0], box_positions[green_box_pt][1], box_size[2] / 2.0]
 green_box = rd.Robot.create_box(box_size, box_pose, "free", 0.1, [0.1, 0.9, 0.1, 1.0], "green_box")
 
@@ -80,7 +89,8 @@ blue_box_pt = np.random.choice(len(box_positions))
 while blue_box_pt == green_box_pt or blue_box_pt == red_box_pt:
     box_pt = np.random.choice(len(box_positions))
 
-#box_pose = [0., 0., 0., 0.3, 0.25, box_size[2] / 2.0]
+#box_pose = [0., 0., 0., 0.3, 0.25, box_size[2] / 2.0] # EDGE CASE: next to each other
+#box_pose = [0., 0., np.pi/16, box_positions[blue_box_pt][0], box_positions[blue_box_pt][1], box_size[2] / 2.0] # EDGE CASE: rotated
 box_pose = [0., 0., 0., box_positions[blue_box_pt][0], box_positions[blue_box_pt][1], box_size[2] / 2.0]
 blue_box = rd.Robot.create_box(box_size, box_pose, "free", 0.1, [0.1, 0.1, 0.9, 1.0], "blue_box")
 #########################################################
@@ -88,7 +98,7 @@ blue_box = rd.Robot.create_box(box_size, box_pose, "free", 0.1, [0.1, 0.1, 0.9, 
 #########################################################
 # PROBLEM DEFINITION
 # Choose problem
-problems = create_problems()
+problems = utils.create_problems()
 problem_id = np.random.choice(len(problems))
 problem = problems[problem_id]
 
@@ -136,6 +146,8 @@ class RobotState:
     moving = False
     # flag to indicate prep move is done
     prep_move = None
+    # error threshold
+    error_threshold = ERROR_THRESHOLD_HIGH
 
 class PITaskController:
     """
@@ -155,36 +167,55 @@ class PITaskController:
         self.target = target
 
     def get_error(self, tf):
-        return calc_error(self.target, tf)
+        return utils.calc_error(self.target, tf)
     
     def update(self, current):
+        # calculate error in world frame
         error_wf = self.get_error(current)
+        # add error*dt to total sum (to simulate integral calculation for each step)
         self.error_sum += error_wf * self.dt
 
+        # save norm of error, to stop control if it's too smal
         self.last_error = np.linalg.norm(error_wf)
-        
+
+        # PI Controller: Kp*Xe + Ki*Int
         return self.Kp * error_wf + self.Ki * self.error_sum
     
 # instantiate controller
 controller = PITaskController(None, dt)
     
+#########################################################
+## LOW LEVEL CONTROLLERS
 def moveToPosition():
     """
     Low-level controller
     Moves robot so end-effector reaches specific position
     Target position is defined by target in controller (global PITaskController instance)
     """
+    # get current transformation matrix
     tf = robot.body_pose(eef_link_name)
+    # get commands needed to reach target using controller
     new_v = controller.update(tf)
 
-    if controller.last_error > ERROR_THRESHOLD:
+    # if error is large enough, continue control
+    if controller.last_error > RobotState.error_threshold:
         jacobian_wf = robot.jacobian(eef_link_name)
-        jac_pinv = damped_pseudoinverse(jacobian_wf)
+        jac_pinv = utils.damped_pseudoinverse(jacobian_wf)
         commands = jac_pinv @ new_v
 
-        # keep gripper speed as-is
-        commands[7] = -0.05 if RobotState.gripping else 0
-
+        # if gripping, keep pressure on object
+        # TODO: figure out how to solve sway
+        if RobotState.gripping:
+            commands[7] = -0.5
+            #print(robot.velocities()[7])
+            #v = robot.velocities()
+            #v[7] = -0.6
+            #robot.set_velocities(v)
+        # if not gripping and gripper not open, open it
+        elif robot.positions()[7] < 0.039:
+            commands[7] = 0.1
+            
+        # set required commands to reach target
         robot.set_commands(commands)
         
         return None
@@ -204,7 +235,10 @@ def moveToGripPosition():
     if res:
         # if we just moved above position, set new position to move down to position
         if not RobotState.above:
-            desired_total = isom3_to_np(controller.target)
+            # we need more precise movement before gripping, so reduce error threshold
+            RobotState.error_threshold = ERROR_THRESHOLD_LOW
+            desired_total = utils.isom3_to_np(controller.target)
+            # subtract from z direction
             desired_total[2, 3] -= 0.3
             tf_desired = Isometry3(desired_total)
             controller.set_target(tf_desired)
@@ -228,27 +262,35 @@ def moveToEndPosition():
     if RobotState.move_state is None:
         RobotState.move_state = 0
 
+        # First, robot will move up
+        # therefore, save existing target for later
         RobotState.target = controller.target
 
+        # set target as current + 0.3 in z direction
         current_pos = robot.body_pose(eef_link_name)
-        current_pos = isom3_to_np(current_pos)
+        current_pos = utils.isom3_to_np(current_pos)
         current_pos[2, 3] += 0.3
         tf = Isometry3(current_pos)
         controller.set_target(tf)
     
+    # Continue control
     res = moveToPosition()
 
     if res:
         # if we just moved above initial position
         if RobotState.move_state == 0:
             RobotState.move_state = 1
-            new_pos = isom3_to_np(RobotState.target)
+            # Set new target as 0.3 above final target
+            new_pos = utils.isom3_to_np(RobotState.target)
             new_pos[2, 3] += 0.3
             tf = Isometry3(new_pos)
             controller.set_target(tf)
         # if we just moved above end position
         elif RobotState.move_state == 1:
+            # we need more precise movement when releasing, so reduce error threshold
+            RobotState.error_threshold = ERROR_THRESHOLD_LOW
             RobotState.move_state = 2
+            # Set new target as final target
             controller.set_target(RobotState.target)
         # if we just moved to end position
         else:
@@ -256,8 +298,6 @@ def moveToEndPosition():
             return True
         
     return None
-
-    
 
 def closeGripper():
     """
@@ -288,6 +328,10 @@ def openGripper():
     
     return None
 
+#########################################################
+
+#########################################################
+# Function creating behavior tree with desired behavior
 def createBehaviorTree():
     """
     Creates behavior tree that solves given problem
@@ -301,12 +345,13 @@ def createBehaviorTree():
 
     box_colors = list(box_map.keys())
 
+    # loop through boxes in order that they must be picked up in
     for i in range(3):
         for j in range(i, 3):
             pos1 = box_map[problem[i]].positions()[3:5]
             pos2 = box_map[problem[j]].positions()[3:5]
             # if they are right next to each other (same y, x off by .05)
-            if isclose(pos1[1] - pos2[1], 0) and isclose(np.abs(pos1[0] - pos2[0]), 0.05):
+            if utils.isclose(pos1[1] - pos2[1], 0) and utils.isclose(np.abs(pos1[0] - pos2[0]), 0.05):
                 # assign rotated hold to first one to be picked
                 box_holds[problem[i]] = R_ROT_HOLD
                 box_holds[problem[j]] = R_REG_HOLD
@@ -316,7 +361,7 @@ def createBehaviorTree():
                     k = (set(range(3)) - {i, j}).pop()
                     pos3 = box_map[problem[k]].positions()[3:5]
                     # check if third box is above or below
-                    if isclose(pos1[0] - pos3[0], 0) and isclose(np.abs(pos1[1] - pos3[1]), 0.05):
+                    if utils.isclose(pos1[0] - pos3[0], 0) and utils.isclose(np.abs(pos1[1] - pos3[1]), 0.05):
                         # if surrounded, assign regular hold to above or below and stop
                         RobotState.prep_move = False
                         prep_move_box_idx = k
@@ -326,6 +371,7 @@ def createBehaviorTree():
         if prep_move_box_idx is not None:
             break
 
+    # assign regular hold to any box that might not have one yet
     for box in box_map:
         if box not in box_holds:
             box_holds[box] = R_REG_HOLD
@@ -348,25 +394,42 @@ def createBehaviorTree():
         """
         box_pos = box_map[box_color].positions()[3:]
 
-        target = Isometry3(create_transformation_matrix(box_holds[box_color], np.array((box_pos[0], box_pos[1], box_pos[2] + 0.1))))
+        # use preassigned hold matrix, but rotate it based on box's z rotation
+        # angle is wrapped to [-pi/2, pi/2), since that covers the full range of motion (gripper is symmetric)
+        hold_matrix = box_holds[box_color]
+        rot_matrix = Rot_Z(utils.angle_wrap_pi(-box_map[box_color].positions()[2]))
 
-        res = np.linalg.norm(calc_error(target, current)) < ERROR_THRESHOLD
+        # create target matrix
+        target = Isometry3(utils.create_transformation_matrix(hold_matrix @ rot_matrix, np.array((box_pos[0], box_pos[1], box_pos[2] + 0.1))))
+
+        # check norm of error between target and current matrices
+        res = np.linalg.norm(utils.calc_error(target, current)) < RobotState.error_threshold
 
         if res:
             RobotState.moving = False
             RobotState.above = False
+
         return res
     
     def checkEEfPosition(target, current):
         """
         Checks if end effector is close to given position
         """
-        return np.linalg.norm(calc_error(target, current)) < ERROR_THRESHOLD
+        return np.linalg.norm(utils.calc_error(target, current)) < RobotState.error_threshold
 
     def moveToBox(box_color):
         if not RobotState.moving:
+            # we don't need precise movement for moving above
+            RobotState.error_threshold = ERROR_THRESHOLD_HIGH
+
+            # get translation of box
             desired_translation = box_map[box_color].body_pose(0).translation()
-            desired_total = create_transformation_matrix(box_holds[box_color], np.array((desired_translation[0], desired_translation[1], desired_translation[2] + 0.4)))
+
+            # use preassigned hold matrix with appropriate z rotation
+            hold_matrix = box_holds[box_color]
+            rot_matrix = Rot_Z(utils.angle_wrap_pi(-box_map[box_color].positions()[2]))
+
+            desired_total = utils.create_transformation_matrix(hold_matrix @ rot_matrix, np.array((desired_translation[0], desired_translation[1], desired_translation[2] + 0.4)))
             tf_desired = Isometry3(desired_total)
             controller.set_target(tf_desired)
 
@@ -375,6 +438,7 @@ def createBehaviorTree():
     
         res = moveToGripPosition()
 
+        # if successful, stop moving
         if res:
             robot.set_commands([0, 0, 0, 0, 0, 0, 0, 0, 0])
             RobotState.moving = False
@@ -384,6 +448,10 @@ def createBehaviorTree():
 
     def setAndMoveToPos(tf):
         if not RobotState.moving:
+            # we don't need precise movement for moving up and above target
+            RobotState.error_threshold = ERROR_THRESHOLD_HIGH
+
+            # set new target position
             controller.set_target(tf)
             RobotState.moving = True
             RobotState.above = False
@@ -438,7 +506,7 @@ def createBehaviorTree():
             move_to_stack_action = bt.Action(lambda: setAndMoveToPos(BOX_END_POS_MATRICES_I3[box_idx]))
         else:
             box_pos = box_map[problem[box_idx]].positions()[3:5]
-            new_pos_matrix = Isometry3(create_transformation_matrix(R_REG_HOLD, np.array((box_pos[0], box_pos[1]-0.15, 0.15))))
+            new_pos_matrix = Isometry3(utils.create_transformation_matrix(R_REG_HOLD, np.array((box_pos[0], box_pos[1]-0.15, 0.15))))
             in_stack_pos_cond = bt.Condition(lambda: checkEEfPosition(new_pos_matrix, robot.body_pose(eef_link_name)))
             move_to_stack_action = bt.Action(lambda: setAndMoveToPos(new_pos_matrix))
         stack_pos_fb.add_children([in_stack_pos_cond, move_to_stack_action])
@@ -473,12 +541,22 @@ def createBehaviorTree():
     root = bt.Root(main_seq)
     return root
 
+#########################################################
 
 root = createBehaviorTree()
+
+'''
+m = Isometry3(utils.create_transformation_matrix(np.eye(3), np.array((
+    (0, 0, 1.15)
+))))
+
+controller.set_target(m)
+'''
 
 for step in range(total_steps):
     if (simu.schedule(simu.control_freq())):
         root.tick()
+        #moveToPosition()
 
     if (simu.step_world()):
         break
