@@ -90,3 +90,10 @@ def angle_wrap_pi(a):
     a = angle_wrap(a)
 
     return np.arctan2(np.sin(a), abs(np.cos(a)))
+
+def get_z_angle_from_rot_matrix(R):
+    """
+    Returns z-angle from rotation matrix
+    """
+    return np.arctan2(R[1, 0], R[0, 0])
+    

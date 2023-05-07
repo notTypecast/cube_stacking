@@ -17,7 +17,21 @@ R_REG_HOLD = np.array((
 # regular hold, rotated by 90 degrees
 R_ROT_HOLD = R_REG_HOLD @ rotate_90_z
 
-# rotation matrix: a (in radians) around z axis
+# X axis rotation matrix for a (in radians)
+Rot_X = lambda a: np.array((
+    (1, 0, 0),
+    (0, np.cos(a), -np.sin(a)),
+    (0, np.sin(a), np.cos(a))
+))
+
+# Y axis rotation matrix for a (in radians)
+Rot_Y = lambda a: np.array((
+    (np.cos(a), 0, np.sin(a)),
+    (0, 1, 0),
+    (-np.sin(a), 0, np.cos(a))
+))
+
+# Z axis rotation matrix for a (in radians)
 Rot_Z = lambda a: np.array((
     (np.cos(a), -np.sin(a), 0),
     (np.sin(a), np.cos(a), 0),
@@ -67,9 +81,9 @@ box_size = [0.04, 0.04, 0.04]
 # Random cube position
 red_box_pt = np.random.choice(len(box_positions))
 
-#box_pose = [0., 0., 0., 0.35, 0.3, box_size[2] / 2.0] # EDGE CASE: next to each other
+box_pose = [0., 0., 0., 0.35, 0.3, box_size[2] / 2.0] # EDGE CASE: next to each other
 #box_pose = [0., 0., 13*np.pi/3, box_positions[red_box_pt][0], box_positions[red_box_pt][1], box_size[2] / 2.0] # EDGE CASE: rotated
-box_pose = [0., 0., 0., box_positions[red_box_pt][0], box_positions[red_box_pt][1], box_size[2] / 2.0]
+#box_pose = [0., 0., 0., box_positions[red_box_pt][0], box_positions[red_box_pt][1], box_size[2] / 2.0]
 red_box = rd.Robot.create_box(box_size, box_pose, "free", 0.1, [0.9, 0.1, 0.1, 1.0], "red_box")
 
 # Green Box
@@ -78,9 +92,9 @@ green_box_pt = np.random.choice(len(box_positions))
 while green_box_pt == red_box_pt:
     green_box_pt = np.random.choice(len(box_positions))
 
-#box_pose = [0., 0., 0., 0.35, 0.25, box_size[2] / 2.0] # EDGE CASE: next to each other
+box_pose = [0., 0., 0., 0.35, 0.25, box_size[2] / 2.0] # EDGE CASE: next to each other
 #box_pose = [np.pi/2, 5*np.pi/4, np.pi/4, box_positions[green_box_pt][0], box_positions[green_box_pt][1], 4*box_size[2] / 2.0] # EDGE CASE: rotated
-box_pose = [0., 0., 0., box_positions[green_box_pt][0], box_positions[green_box_pt][1], box_size[2] / 2.0]
+#box_pose = [0., 0., 0., box_positions[green_box_pt][0], box_positions[green_box_pt][1], box_size[2] / 2.0]
 green_box = rd.Robot.create_box(box_size, box_pose, "free", 0.1, [0.1, 0.9, 0.1, 1.0], "green_box")
 
 # Blue Box
@@ -89,9 +103,9 @@ blue_box_pt = np.random.choice(len(box_positions))
 while blue_box_pt == green_box_pt or blue_box_pt == red_box_pt:
     box_pt = np.random.choice(len(box_positions))
 
-#box_pose = [0., 0., 0., 0.3, 0.25, box_size[2] / 2.0] # EDGE CASE: next to each other
-#box_pose = [0., 0., np.pi/16, box_positions[blue_box_pt][0], box_positions[blue_box_pt][1], box_size[2] / 2.0] # EDGE CASE: rotated
-box_pose = [0., 0., 0., box_positions[blue_box_pt][0], box_positions[blue_box_pt][1], box_size[2] / 2.0]
+box_pose = [0., 0., 0., 0.3, 0.25, box_size[2] / 2.0] # EDGE CASE: next to each other
+#box_pose = [0., 0., np.pi/4., box_positions[blue_box_pt][0], box_positions[blue_box_pt][1], box_size[2] / 2.0] # EDGE CASE: rotated
+#box_pose = [0., 0., 0., box_positions[blue_box_pt][0], box_positions[blue_box_pt][1], box_size[2] / 2.0]
 blue_box = rd.Robot.create_box(box_size, box_pose, "free", 0.1, [0.1, 0.1, 0.9, 1.0], "blue_box")
 #########################################################
 
@@ -124,7 +138,6 @@ simu.add_robot(red_box)
 simu.add_robot(blue_box)
 simu.add_robot(green_box)
 #########################################################
-
 
 class RobotState:
     """
@@ -204,13 +217,14 @@ def moveToPosition():
         commands = jac_pinv @ new_v
 
         # if gripping, keep pressure on object
-        # TODO: figure out how to solve sway
         if RobotState.gripping:
-            commands[7] = -0.5
-            #print(robot.velocities()[7])
-            #v = robot.velocities()
-            #v[7] = -0.6
-            #robot.set_velocities(v)
+            pos = robot.positions()[7]
+            # apply command only if not at right position
+            if pos < 0.02:
+                commands[7] = 0
+            else:
+                commands[7] = -0.1
+
         # if not gripping and gripper not open, open it
         elif robot.positions()[7] < 0.039:
             commands[7] = 0.1
@@ -282,7 +296,7 @@ def moveToEndPosition():
             RobotState.move_state = 1
             # Set new target as 0.3 above final target
             new_pos = utils.isom3_to_np(RobotState.target)
-            new_pos[2, 3] += 0.3
+            new_pos[2, 3] += 0.2
             tf = Isometry3(new_pos)
             controller.set_target(tf)
         # if we just moved above end position
@@ -382,11 +396,11 @@ def createBehaviorTree():
         Checks if a box's position is the given one
         """
         current = box_map[box_color].positions()
-        #return current[3] == pos[0] and current[4] == pos[1]
-        #print(np.abs(current[3] - pos[0]), np.abs(current[4] - pos[1]))
-        #print(np.abs(current[3] - pos[0]) < 0.15 and np.abs(current[4] - pos[1]) < 0.15)
-        #print("Returning", np.abs(current[3] - pos[0]) < 0.15 and np.abs(current[4] - pos[1]) < 0.15)
-        return np.abs(current[3] - pos[0]) < 0.05 and np.abs(current[4] - pos[1]) < 0.05
+        res = np.abs(current[3] - pos[0]) < 0.05 and np.abs(current[4] - pos[1]) < 0.05
+        if not res:
+            RobotState.moving = False
+
+        return res
     
     def checkEEfPositionAgainstBox(box_color, current):
         """
@@ -397,7 +411,9 @@ def createBehaviorTree():
         # use preassigned hold matrix, but rotate it based on box's z rotation
         # angle is wrapped to [-pi/2, pi/2), since that covers the full range of motion (gripper is symmetric)
         hold_matrix = box_holds[box_color]
-        rot_matrix = Rot_Z(utils.angle_wrap_pi(-box_map[box_color].positions()[2]))
+        angle = utils.angle_wrap_pi(-box_map[box_color].positions()[2])
+        #angle = utils.get_z_angle_from_rot_matrix(box_map[box_color].body_pose(0).rotation())
+        rot_matrix = Rot_Z(angle)
 
         # create target matrix
         target = Isometry3(utils.create_transformation_matrix(hold_matrix @ rot_matrix, np.array((box_pos[0], box_pos[1], box_pos[2] + 0.1))))
@@ -427,7 +443,9 @@ def createBehaviorTree():
 
             # use preassigned hold matrix with appropriate z rotation
             hold_matrix = box_holds[box_color]
-            rot_matrix = Rot_Z(utils.angle_wrap_pi(-box_map[box_color].positions()[2]))
+            angle = utils.angle_wrap_pi(-box_map[box_color].positions()[2])
+            #angle = utils.get_z_angle_from_rot_matrix(box_map[box_color].body_pose(0).rotation())
+            rot_matrix = Rot_Z(angle)
 
             desired_total = utils.create_transformation_matrix(hold_matrix @ rot_matrix, np.array((desired_translation[0], desired_translation[1], desired_translation[2] + 0.4)))
             tf_desired = Isometry3(desired_total)
@@ -553,10 +571,28 @@ m = Isometry3(utils.create_transformation_matrix(np.eye(3), np.array((
 controller.set_target(m)
 '''
 
+red_box.set_draw_axis(red_box.body_name(0), 1.)
+blue_box.set_draw_axis(blue_box.body_name(0), 1.)
+green_box.set_draw_axis(green_box.body_name(0), 1.)
+#robot.set_draw_axis(eef_link_name, 1.)
+#np.set_printoptions(suppress=True)
+
 for step in range(total_steps):
     if (simu.schedule(simu.control_freq())):
         root.tick()
         #moveToPosition()
+        '''
+        if step > 1000:
+            p = green_box.positions()
+            #p[2] += 0.1
+            green_box.set_positions(p)
+
+        if step == 1000:
+            print(green_box.body_pose(0).rotation())
+            angles = green_box.positions()
+            rot =  Rot_Z(angles[2]) @ Rot_Y(angles[1]) @ Rot_X(angles[0])
+            print(rot)
+        '''
 
     if (simu.step_world()):
         break
