@@ -81,9 +81,9 @@ box_size = [0.04, 0.04, 0.04]
 # Random cube position
 red_box_pt = np.random.choice(len(box_positions))
 
-box_pose = [0., 0., 0., 0.35, 0.3, box_size[2] / 2.0] # EDGE CASE: next to each other
-#box_pose = [0., 0., 13*np.pi/3, box_positions[red_box_pt][0], box_positions[red_box_pt][1], box_size[2] / 2.0] # EDGE CASE: rotated
-#box_pose = [0., 0., 0., box_positions[red_box_pt][0], box_positions[red_box_pt][1], box_size[2] / 2.0]
+#box_pose = [0., 0., 0., 0.35, 0.3, box_size[2] / 2.0] # EDGE CASE: next to each other
+#box_pose = [0., 0., np.pi/2, box_positions[red_box_pt][0], box_positions[red_box_pt][1], 50*box_size[2] / 2.0] # EDGE CASE: rotated
+box_pose = [0., 0., 0., box_positions[red_box_pt][0], box_positions[red_box_pt][1], box_size[2] / 2.0]
 red_box = rd.Robot.create_box(box_size, box_pose, "free", 0.1, [0.9, 0.1, 0.1, 1.0], "red_box")
 
 # Green Box
@@ -92,9 +92,9 @@ green_box_pt = np.random.choice(len(box_positions))
 while green_box_pt == red_box_pt:
     green_box_pt = np.random.choice(len(box_positions))
 
-box_pose = [0., 0., 0., 0.35, 0.25, box_size[2] / 2.0] # EDGE CASE: next to each other
+#box_pose = [0., 0., 0., 0.35, 0.25, box_size[2] / 2.0] # EDGE CASE: next to each other
 #box_pose = [np.pi/2, 5*np.pi/4, np.pi/4, box_positions[green_box_pt][0], box_positions[green_box_pt][1], 4*box_size[2] / 2.0] # EDGE CASE: rotated
-#box_pose = [0., 0., 0., box_positions[green_box_pt][0], box_positions[green_box_pt][1], box_size[2] / 2.0]
+box_pose = [0., 0., 0., box_positions[green_box_pt][0], box_positions[green_box_pt][1], box_size[2] / 2.0]
 green_box = rd.Robot.create_box(box_size, box_pose, "free", 0.1, [0.1, 0.9, 0.1, 1.0], "green_box")
 
 # Blue Box
@@ -103,9 +103,9 @@ blue_box_pt = np.random.choice(len(box_positions))
 while blue_box_pt == green_box_pt or blue_box_pt == red_box_pt:
     box_pt = np.random.choice(len(box_positions))
 
-box_pose = [0., 0., 0., 0.3, 0.25, box_size[2] / 2.0] # EDGE CASE: next to each other
+#box_pose = [0., 0., 0., 0.3, 0.25, box_size[2] / 2.0] # EDGE CASE: next to each other
 #box_pose = [0., 0., np.pi/4., box_positions[blue_box_pt][0], box_positions[blue_box_pt][1], box_size[2] / 2.0] # EDGE CASE: rotated
-#box_pose = [0., 0., 0., box_positions[blue_box_pt][0], box_positions[blue_box_pt][1], box_size[2] / 2.0]
+box_pose = [0., 0., 0., box_positions[blue_box_pt][0], box_positions[blue_box_pt][1], box_size[2] / 2.0]
 blue_box = rd.Robot.create_box(box_size, box_pose, "free", 0.1, [0.1, 0.1, 0.9, 1.0], "blue_box")
 #########################################################
 
@@ -571,11 +571,14 @@ m = Isometry3(utils.create_transformation_matrix(np.eye(3), np.array((
 controller.set_target(m)
 '''
 
-red_box.set_draw_axis(red_box.body_name(0), 1.)
-blue_box.set_draw_axis(blue_box.body_name(0), 1.)
-green_box.set_draw_axis(green_box.body_name(0), 1.)
+#red_box.set_draw_axis(red_box.body_name(0), 1.)
+#blue_box.set_draw_axis(blue_box.body_name(0), 1.)
+#green_box.set_draw_axis(green_box.body_name(0), 1.)
+#robot.set_draw_axis(robot.body_name(0), 1.)
 #robot.set_draw_axis(eef_link_name, 1.)
 #np.set_printoptions(suppress=True)
+
+#graphics.record_video("demos/sdemo.mp4")
 
 for step in range(total_steps):
     if (simu.schedule(simu.control_freq())):
