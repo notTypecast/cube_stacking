@@ -2,10 +2,7 @@ from BehaviorTree.leaf import Leaf
 from BehaviorTree.root import Status
 
 class Condition(Leaf):
-    def tick(self, running_action=False):
-        if running_action:
-            return False
-        
+    def tick(self):        
         result = self.function()
 
         if result:

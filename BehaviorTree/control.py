@@ -9,10 +9,18 @@ class Control(ABC):
     Subclasses must define tick method
     """
 
-    def __init__(self, children=[]):
+    def __init__(self, children=[], memory=True):
+        """
+        Initializes a control node
+        Arguments:
+         children: list of children of control node
+         memory(=True): determines whether to continue from running child, or reset on next tick
+        """
         self.children = []
         self.children.extend(children)
         self.status = None
+        self.memory = memory
+        self.child_index = 0
 
     @abstractmethod
     def tick(self):
@@ -30,6 +38,7 @@ class Control(ABC):
         self.reset()
 
     def reset(self):
+        self.child_index = 0
         self.status = None
 
 def controltick(tick_func):

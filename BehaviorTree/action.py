@@ -9,7 +9,7 @@ class Action(Leaf):
     def reset(self):
         self.status = None
 
-    def tick(self, running_action=False):
+    def tick(self):
         if self.status is not None and self.status != Status.RUNNING:
             return self.status
 

@@ -1,8 +1,29 @@
+import argparse
 import utils
 import numpy as np
 import RobotDART as rd
 import BehaviorTree as bt
 from dartpy.math import Isometry3
+from math import ceil
+
+parser = argparse.ArgumentParser(description = "\
+An implementation allowing the Franka robotic arm to stack three cubes in any order. \
+The cubes are placed in a grid, spanning [0.3, 0.7] for x and [-0.4, 0.4] for y. \
+Task space control, or trajectory optimization may be used to control the arm's movement.")
+
+parser.add_argument("-c", "--control", choices=["task", "topt"], default="task", help="Use task space control or trajectory optimization.")
+parser.add_argument("--cubepos", choices=["random", "line", "triangle"], default="random", help="Use random box positions, or one of two edge cases.")
+args = parser.parse_args()
+
+CONTROLLER = args.control.upper()
+
+if CONTROLLER == "TOPT":
+    from gekko import GEKKO
+    from scipy.optimize import minimize
+    # joint angle limits, as (upper, lower) pairs
+    JOINT_LIMITS = [(2.8973, -2.8973), (1.7628, -1.7628), (2.8973, -2.8973), (-0.0698, -3.0718), (2.8973, -2.8973), (3.7525, -0.0175), (2.8973, -2.8973)]
+    # joint speed limits, absolute value
+    JOINT_SPEED_LIMITS = [2.1750, 2.1750, 2.1750, 2.1750, 2.6100, 2.6100, 2.6100]
 
 # matrix to rotate 90 degrees in z axis
 rotate_90_z = np.array(((0, -1, 0), (1, 0, 0), (0, 0, 1)))
@@ -16,27 +37,6 @@ R_REG_HOLD = np.array((
 
 # regular hold, rotated by 90 degrees
 R_ROT_HOLD = R_REG_HOLD @ rotate_90_z
-
-# X axis rotation matrix for a (in radians)
-Rot_X = lambda a: np.array((
-    (1, 0, 0),
-    (0, np.cos(a), -np.sin(a)),
-    (0, np.sin(a), np.cos(a))
-))
-
-# Y axis rotation matrix for a (in radians)
-Rot_Y = lambda a: np.array((
-    (np.cos(a), 0, np.sin(a)),
-    (0, 1, 0),
-    (-np.sin(a), 0, np.cos(a))
-))
-
-# Z axis rotation matrix for a (in radians)
-Rot_Z = lambda a: np.array((
-    (np.cos(a), -np.sin(a), 0),
-    (np.sin(a), np.cos(a), 0),
-    (0, 0, 1)
-))
 
 ERROR_THRESHOLD_LOW = 0.005 # low threshold, precise movement
 ERROR_THRESHOLD_HIGH = 0.1 # high threshold, fast movement
@@ -77,36 +77,35 @@ box_positions = utils.create_grid()
 
 box_size = [0.04, 0.04, 0.04]
 
-# Red Box
-# Random cube position
-red_box_pt = np.random.choice(len(box_positions))
-
-#box_pose = [0., 0., 0., 0.35, 0.3, box_size[2] / 2.0] # EDGE CASE: next to each other
-#box_pose = [0., 0., np.pi/2, box_positions[red_box_pt][0], box_positions[red_box_pt][1], 50*box_size[2] / 2.0] # EDGE CASE: rotated
-box_pose = [0., 0., 0., box_positions[red_box_pt][0], box_positions[red_box_pt][1], box_size[2] / 2.0]
-red_box = rd.Robot.create_box(box_size, box_pose, "free", 0.1, [0.9, 0.1, 0.1, 1.0], "red_box")
-
-# Green Box
-# Random cube position
-green_box_pt = np.random.choice(len(box_positions))
-while green_box_pt == red_box_pt:
+if args.cubepos == "random":
+    red_box_pt = np.random.choice(len(box_positions))
+    red_box_pose = [0., 0., 0., box_positions[red_box_pt][0], box_positions[red_box_pt][1], box_size[2] / 2.0]
     green_box_pt = np.random.choice(len(box_positions))
+    while green_box_pt == red_box_pt:
+        green_box_pt = np.random.choice(len(box_positions))
+    green_box_pose = [0., 0., 0., box_positions[green_box_pt][0], box_positions[green_box_pt][1], box_size[2] / 2.0]
+    blue_box_pt = np.random.choice(len(box_positions))
+    while blue_box_pt == green_box_pt or blue_box_pt == red_box_pt:
+        box_pt = np.random.choice(len(box_positions))
+    blue_box_pose = [0., 0., 0., box_positions[blue_box_pt][0], box_positions[blue_box_pt][1], box_size[2] / 2.0]
+elif args.cubepos == "line":
+    red_box_pose = [0., 0., 0., 0.25, 0.25, box_size[2] / 2.0]
+    green_box_pose = [0., 0., 0., 0.35, 0.25, box_size[2] / 2.0]
+    blue_box_pose = [0., 0., 0., 0.3, 0.25, box_size[2] / 2.0]
+else:
+    red_box_pose = [0., 0., 0., 0.35, 0.3, box_size[2] / 2.0]
+    green_box_pose = [0., 0., 0., 0.35, 0.25, box_size[2] / 2.0]
+    blue_box_pose = [0., 0., 0., 0.3, 0.25, box_size[2] / 2.0]
 
-#box_pose = [0., 0., 0., 0.35, 0.25, box_size[2] / 2.0] # EDGE CASE: next to each other
+ 
+#box_pose = [0., 0., np.pi/4, box_positions[red_box_pt][0], box_positions[red_box_pt][1], box_size[2] / 2.0] # EDGE CASE: rotated
 #box_pose = [np.pi/2, 5*np.pi/4, np.pi/4, box_positions[green_box_pt][0], box_positions[green_box_pt][1], 4*box_size[2] / 2.0] # EDGE CASE: rotated
-box_pose = [0., 0., 0., box_positions[green_box_pt][0], box_positions[green_box_pt][1], box_size[2] / 2.0]
-green_box = rd.Robot.create_box(box_size, box_pose, "free", 0.1, [0.1, 0.9, 0.1, 1.0], "green_box")
+#box_pose = [0., np.pi/2, np.pi/4., box_positions[blue_box_pt][0], box_positions[blue_box_pt][1], 4*box_size[2] / 2.0] # EDGE CASE: rotated
 
-# Blue Box
-# Random cube position
-blue_box_pt = np.random.choice(len(box_positions))
-while blue_box_pt == green_box_pt or blue_box_pt == red_box_pt:
-    box_pt = np.random.choice(len(box_positions))
+red_box = rd.Robot.create_box(box_size, red_box_pose, "free", 0.1, [0.9, 0.1, 0.1, 1.0], "red_box")
+green_box = rd.Robot.create_box(box_size, green_box_pose, "free", 0.1, [0.1, 0.9, 0.1, 1.0], "green_box")
+blue_box = rd.Robot.create_box(box_size, blue_box_pose, "free", 0.1, [0.1, 0.1, 0.9, 1.0], "blue_box")
 
-#box_pose = [0., 0., 0., 0.3, 0.25, box_size[2] / 2.0] # EDGE CASE: next to each other
-#box_pose = [0., 0., np.pi/4., box_positions[blue_box_pt][0], box_positions[blue_box_pt][1], box_size[2] / 2.0] # EDGE CASE: rotated
-box_pose = [0., 0., 0., box_positions[blue_box_pt][0], box_positions[blue_box_pt][1], box_size[2] / 2.0]
-blue_box = rd.Robot.create_box(box_size, box_pose, "free", 0.1, [0.1, 0.1, 0.9, 1.0], "blue_box")
 #########################################################
 
 #########################################################
@@ -164,7 +163,7 @@ class RobotState:
 
 class PITaskController:
     """
-    Task controller for moving the end-effector to a given location
+    Task space controller for moving the end-effector to a given location
     Handles translation and rotation separately
     """
     def __init__(self, target, dt, Kp=2, Ki=0.005):
@@ -173,7 +172,6 @@ class PITaskController:
         self.Kp = Kp
         self.Ki = Ki
         self.error_sum = 0
-        self.last_error = None
 
     def set_target(self, target):
         self.error_sum = 0
@@ -182,59 +180,182 @@ class PITaskController:
     def get_error(self, tf):
         return utils.calc_error(self.target, tf)
     
-    def update(self, current):
+    def update(self):
+        current = robot.body_pose(eef_link_name)
         # calculate error in world frame
         error_wf = self.get_error(current)
         # add error*dt to total sum (to simulate integral calculation for each step)
         self.error_sum += error_wf * self.dt
 
-        # save norm of error, to stop control if it's too smal
-        self.last_error = np.linalg.norm(error_wf)
-
         # PI Controller: Kp*Xe + Ki*Int
-        return self.Kp * error_wf + self.Ki * self.error_sum
+        new_v = self.Kp * error_wf + self.Ki * self.error_sum
+
+        # if error is large enough, continue control
+        if np.linalg.norm(error_wf) > RobotState.error_threshold:
+            jacobian_wf = robot.jacobian(eef_link_name)
+            jac_pinv = utils.damped_pseudoinverse(jacobian_wf)
+            commands = jac_pinv @ new_v
+                
+            return commands
+        
+        return None
+    
+class TrajectoryOptController:
+    """
+    Trajectory optimization controller for moving the end-effector to a given location
+    """
+    def __init__(self, target, dt):
+        """
+        Initializes the controller with some position, and the simulation timestep
+        dt is multiplied by 10 to match simulation frequency
+        """
+        if target is not None:
+            self.set_target(target)
+        else:
+            self.target = None
+        self.dt = dt*10
+        self.solution = None
+
+    def set_target(self, tf):
+        """
+        Sets target transformation matrix and corresponding joint positions
+        """
+        self.target = tf
+        self.target_pos = TrajectoryOptController.ik_opt(robot.positions(), tf)
+
+    def update(self):
+        """
+        Returns next commands for control to given target
+        """
+        if self.solution is None:
+            self.solution = self.calculate()
+        
+        try:
+            return next(self.solution)
+        except StopIteration:
+            self.solution = None
+            return None
+
+    def calculate(self, t_final=1):
+        """
+        Calculates the commands required to get to target
+        t_final: total time to complete movement (in seconds)
+        """
+        # create model
+        model = GEKKO(remote=False)
+
+        # time discretization constant
+        N = 40
+        # split total time into equal intervals
+        model.time = np.linspace(0, t_final, N)
+
+        # state is joint positions
+        state = model.Array(model.Var, 7)
+
+        # control is joint speed
+        control = model.Array(model.MV, 7)
+
+        # set initial position for state, and limits for state and speed
+        pos = robot.positions()
+        for i in range(7):
+            state[i].value = pos[i]
+            state[i].lower = JOINT_LIMITS[i][1]
+            state[i].upper = JOINT_LIMITS[i][0]
+            control[i].STATUS = 1
+            control[i].lower = -JOINT_SPEED_LIMITS[i]
+            control[i].upper = JOINT_SPEED_LIMITS[i]
+
+        # system dynamics
+        for i in range(7):
+            # dx_i/dt = u_i
+            model.Equation(state[i].dt() == control[i])
+
+        # boundary constraint (final position should be target position)
+        for i in range(7):
+            model.fix(state[i], pos=len(model.time)-1, val=self.target_pos[i])
+
+        # objective function to minimize (squared norm of speed vector)
+        model.Obj(sum([control[i]**2 for i in range(7)]))
+
+        # non-linear solver
+        model.options.IMODE = 6
+        model.solve(disp=False)
+
+        #print(model.options.SOLVETIME)
+
+        # need to return Tf/dt total commands, to span Tf simulation seconds
+        for i in range(int(t_final/self.dt)):
+            # we have a total of N commands, which need to be spread over a range of Tf/dt
+            # as such, we return each command a total of D = Tf/(dt*N) times
+            # therefore, we use the index ceil(i/D), so each i is used D times
+            index = ceil(i*N*self.dt/t_final)
+            if index < len(control[0]):
+                # we only solved for the 7 DOFs, append 0s for the last two joints
+                commands = [c[index] for c in control]
+                commands.extend([0, 0])
+                yield commands
+            else:
+                yield [0 for _ in range(9)]
+    
+    # black-box optimization
+    @staticmethod
+    def ik_opt(pos, tf_desired, min_error = 1e-12):
+        """
+        Calculates robot positions (joint angles) from given transformation matrix using black-box optimization
+        """
+        def eval(x):
+            robot.set_positions(x)
+            tf = robot.body_pose(eef_link_name)
+            # we do not need to convert to world frame since we are not using the Jacobian
+            error_in_body_frame = rd.math.logMap(tf.inverse().multiply(tf_desired))
+
+            ferror = np.linalg.norm(error_in_body_frame)
+            fjoint = np.linalg.norm(x)**2
+            # term r*fjoint helps minimize the joint angles
+            return ferror + 0.001 * fjoint
+
+        # Optimize using any optimizer
+        res = minimize(eval, pos, method='SLSQP', tol=min_error)
+
+        # set initial positions again
+        robot.set_positions(pos)
+
+        return res.x
     
 # instantiate controller
-controller = PITaskController(None, dt)
+if CONTROLLER == "TOPT":
+    controller = TrajectoryOptController(None, dt)
+else:
+    controller = PITaskController(None, dt)
     
 #########################################################
 ## LOW LEVEL CONTROLLERS
+
 def moveToPosition():
     """
     Low-level controller
     Moves robot so end-effector reaches specific position
-    Target position is defined by target in controller (global PITaskController instance)
     """
-    # get current transformation matrix
-    tf = robot.body_pose(eef_link_name)
-    # get commands needed to reach target using controller
-    new_v = controller.update(tf)
+    commands = controller.update()
 
-    # if error is large enough, continue control
-    if controller.last_error > RobotState.error_threshold:
-        jacobian_wf = robot.jacobian(eef_link_name)
-        jac_pinv = utils.damped_pseudoinverse(jacobian_wf)
-        commands = jac_pinv @ new_v
+    if commands is None:
+        return True
 
-        # if gripping, keep pressure on object
-        if RobotState.gripping:
-            pos = robot.positions()[7]
-            # apply command only if not at right position
-            if pos < 0.02:
-                commands[7] = 0
-            else:
-                commands[7] = -0.1
+    # if gripping, keep pressure on object
+    if RobotState.gripping:
+        pos = robot.positions()[7]
+        # apply command only if not at right position
+        if pos < 0.02:
+            commands[7] = 0
+        else:
+            commands[7] = -0.1
+    # if not gripping and gripper not open, open it
+    elif robot.positions()[7] < 0.039:
+        commands[7] = 0.1
 
-        # if not gripping and gripper not open, open it
-        elif robot.positions()[7] < 0.039:
-            commands[7] = 0.1
-            
-        # set required commands to reach target
-        robot.set_commands(commands)
-        
-        return None
-    
-    return True
+    robot.set_commands(commands)
+
+    return None
 
 def moveToGripPosition():
     """
@@ -250,7 +371,9 @@ def moveToGripPosition():
         # if we just moved above position, set new position to move down to position
         if not RobotState.above:
             # we need more precise movement before gripping, so reduce error threshold
-            RobotState.error_threshold = ERROR_THRESHOLD_LOW
+            # we don't need this for trajectory optimization
+            if CONTROLLER == "TASK":
+                RobotState.error_threshold = ERROR_THRESHOLD_LOW
             desired_total = utils.isom3_to_np(controller.target)
             # subtract from z direction
             desired_total[2, 3] -= 0.3
@@ -319,7 +442,7 @@ def closeGripper():
     Closes end-effector's gripper
     """
     robot.set_commands([0, 0, 0, 0, 0, 0, 0, -0.1, 0])
-    
+
     if robot.positions()[7] < 0.0201:
         RobotState.gripping = True
         return True
@@ -406,18 +529,9 @@ def createBehaviorTree():
         """
         Checks if end effector is close to box
         """
-        box_pos = box_map[box_color].positions()[3:]
-
-        # use preassigned hold matrix, but rotate it based on box's z rotation
-        # angle is wrapped to [-pi/2, pi/2), since that covers the full range of motion (gripper is symmetric)
-        hold_matrix = box_holds[box_color]
-        angle = utils.angle_wrap_pi(-box_map[box_color].positions()[2])
-        #angle = utils.get_z_angle_from_rot_matrix(box_map[box_color].body_pose(0).rotation())
-        rot_matrix = Rot_Z(angle)
-
         # create target matrix
-        target = Isometry3(utils.create_transformation_matrix(hold_matrix @ rot_matrix, np.array((box_pos[0], box_pos[1], box_pos[2] + 0.1))))
-
+        target = utils.get_tf_above_box(box_holds[box_color], box_map[box_color])
+        
         # check norm of error between target and current matrices
         res = np.linalg.norm(utils.calc_error(target, current)) < RobotState.error_threshold
 
@@ -437,19 +551,8 @@ def createBehaviorTree():
         if not RobotState.moving:
             # we don't need precise movement for moving above
             RobotState.error_threshold = ERROR_THRESHOLD_HIGH
-
-            # get translation of box
-            desired_translation = box_map[box_color].body_pose(0).translation()
-
-            # use preassigned hold matrix with appropriate z rotation
-            hold_matrix = box_holds[box_color]
-            angle = utils.angle_wrap_pi(-box_map[box_color].positions()[2])
-            #angle = utils.get_z_angle_from_rot_matrix(box_map[box_color].body_pose(0).rotation())
-            rot_matrix = Rot_Z(angle)
-
-            desired_total = utils.create_transformation_matrix(hold_matrix @ rot_matrix, np.array((desired_translation[0], desired_translation[1], desired_translation[2] + 0.4)))
-            tf_desired = Isometry3(desired_total)
-            controller.set_target(tf_desired)
+            target = utils.get_tf_above_box(box_holds[box_color], box_map[box_color], z_offset=True)
+            controller.set_target(target)
 
             RobotState.moving = True
             RobotState.above = False
@@ -484,7 +587,7 @@ def createBehaviorTree():
 
 
     ### Main sequence node
-    main_seq = bt.Sequence()
+    main_seq = bt.Sequence(memory=False)
     ###
 
     def create_box_fb(box_idx, prep_move=False):
@@ -500,12 +603,12 @@ def createBehaviorTree():
             
 
         # Sequence of decisions and low level controllers for moving box
-        move_low_to_correct_pos = bt.Sequence()
+        move_low_to_correct_pos = bt.Sequence(memory=False)
 
         # Branch 1: moving to position and grabbing
         move_to_grab_pos_fb = bt.Fallback()
         gripping_cond = bt.Condition(lambda: RobotState.gripping)
-        move_grab_seq = bt.Sequence()
+        move_grab_seq = bt.Sequence(memory=False)
         move_to_grab_pos_fb.add_children([gripping_cond, move_grab_seq])
         
         current_pos_fb = bt.Fallback()
@@ -571,31 +674,18 @@ m = Isometry3(utils.create_transformation_matrix(np.eye(3), np.array((
 controller.set_target(m)
 '''
 
-#red_box.set_draw_axis(red_box.body_name(0), 1.)
-#blue_box.set_draw_axis(blue_box.body_name(0), 1.)
-#green_box.set_draw_axis(green_box.body_name(0), 1.)
+red_box.set_draw_axis(red_box.body_name(0), 1.)
+blue_box.set_draw_axis(blue_box.body_name(0), 1.)
+green_box.set_draw_axis(green_box.body_name(0), 1.)
 #robot.set_draw_axis(robot.body_name(0), 1.)
 #robot.set_draw_axis(eef_link_name, 1.)
-#np.set_printoptions(suppress=True)
+np.set_printoptions(suppress=True)
 
 #graphics.record_video("demos/sdemo.mp4")
 
 for step in range(total_steps):
     if (simu.schedule(simu.control_freq())):
         root.tick()
-        #moveToPosition()
-        '''
-        if step > 1000:
-            p = green_box.positions()
-            #p[2] += 0.1
-            green_box.set_positions(p)
-
-        if step == 1000:
-            print(green_box.body_pose(0).rotation())
-            angles = green_box.positions()
-            rot =  Rot_Z(angles[2]) @ Rot_Y(angles[1]) @ Rot_X(angles[0])
-            print(rot)
-        '''
 
     if (simu.step_world()):
         break

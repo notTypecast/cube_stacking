@@ -1,5 +1,27 @@
 import numpy as np
 import RobotDART as rd
+from dartpy.math import Isometry3
+
+# X axis rotation matrix for a (in radians)
+Rot_X = lambda a: np.array((
+    (1, 0, 0),
+    (0, np.cos(a), -np.sin(a)),
+    (0, np.sin(a), np.cos(a))
+))
+
+# Y axis rotation matrix for a (in radians)
+Rot_Y = lambda a: np.array((
+    (np.cos(a), 0, np.sin(a)),
+    (0, 1, 0),
+    (-np.sin(a), 0, np.cos(a))
+))
+
+# Z axis rotation matrix for a (in radians)
+Rot_Z = lambda a: np.array((
+    (np.cos(a), -np.sin(a), 0),
+    (np.sin(a), np.cos(a), 0),
+    (0, 0, 1)
+))
 
 def create_grid(box_step_x=0.05, box_step_y=0.05):
     box_positions = []
@@ -91,9 +113,27 @@ def angle_wrap_pi(a):
 
     return np.arctan2(np.sin(a), abs(np.cos(a)))
 
-def get_z_angle_from_rot_matrix(R):
-    """
-    Returns z-angle from rotation matrix
-    """
-    return np.arctan2(R[1, 0], R[0, 0])
+def get_tf_above_box(hold_matrix, box, z_offset=False):
+    angle = angle_wrap_pi(-box.positions()[2])
+    '''
+    angle = 0
+
+    # find angle that is not equal to others
+    box_angles = box.positions()[:3]
+    for i, a in enumerate(box_angles):
+        other_indices = list(set(range(3)) - set((i,)))
+        if not isclose(abs(a), abs(box_angles[other_indices.pop()])) and not isclose(a, abs(box_angles[other_indices.pop()])):
+            angle = a
+            break
+
+    print("Angles are", box_angles)
+    print("Getting angle", angle)
+    '''
+
+    rot_matrix = Rot_Z(angle)
+
+    desired_translation = box.body_pose(0).translation()
+    desired_total = create_transformation_matrix(hold_matrix @ rot_matrix, np.array((desired_translation[0], desired_translation[1], desired_translation[2] + (0.4 if z_offset else 0.1))))
+    tf_desired = Isometry3(desired_total)
     
+    return tf_desired

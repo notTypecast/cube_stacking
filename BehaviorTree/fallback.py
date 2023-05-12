@@ -9,11 +9,11 @@ class Fallback(Control):
     """
     @controltick
     def tick(self):
-        for child in self.children:
-            if isinstance(child, Control):
-                result = child.tick()
-            else:
-                result = child.tick(self.status == Status.RUNNING)
+        for i in range(self.child_index if self.memory else 0, len(self.children)):
+            result = self.children[i].tick()
+
+            if self.memory and result == Status.RUNNING:
+                self.child_index = i
 
             if result == Status.RUNNING or result == Status.SUCCESS:
                 self.status = result

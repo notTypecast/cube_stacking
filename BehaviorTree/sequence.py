@@ -9,8 +9,11 @@ class Sequence(Control):
     """
     @controltick
     def tick(self):
-        for child in self.children:
-            result = child.tick()
+        for i in range(self.child_index if self.memory else 0, len(self.children)):
+            result = self.children[i].tick()
+
+            if self.memory and result == Status.RUNNING:
+                self.child_index = i
 
             if result == Status.RUNNING or result == Status.FAILURE:
                 self.status = result

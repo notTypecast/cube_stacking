@@ -18,5 +18,5 @@ class Leaf(ABC):
         pass
 
     @abstractmethod
-    def tick(self, running_action=False):
+    def tick(self):
         pass
