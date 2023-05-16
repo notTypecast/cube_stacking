@@ -5,7 +5,6 @@ import numpy as np
 import RobotDART as rd
 import BehaviorTree as bt
 from dartpy.math import Isometry3
-from math import ceil
 from time import time
 
 def mtime_lim(arg):
@@ -309,15 +308,12 @@ class TrajectoryOptController:
         for i in range(int(t_final/self.dt)):
             # we have a total of N commands, which need to be spread over a range of Tf/dt
             # as such, we return each command a total of D = Tf/(dt*N) times
-            # therefore, we use the index ceil(i/D), so each i is used D times
-            index = ceil(i*N*self.dt/t_final)
-            if index < len(control[0]):
-                # we only solved for the 7 DOFs, append 0s for the last two joints
-                commands = [c[index] for c in control]
-                commands.extend([0, 0])
-                yield commands
-            else:
-                yield [0 for _ in range(9)]
+            # therefore, we use the index floor(i/D), so each i is used D times
+            index = int(np.floor(i*N*self.dt/t_final))
+            # we only solved for the 7 DOFs, append 0s for the last two joints
+            commands = [c[index] for c in control]
+            commands.extend([0, 0])
+            yield commands
     
     # black-box optimization
     @staticmethod
