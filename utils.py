@@ -23,6 +23,19 @@ Rot_Z = lambda a: np.array((
     (0, 0, 1)
 ))
 
+# matrix to rotate 90 degrees in z axis
+rotate_90_z = np.array(((0, -1, 0), (1, 0, 0), (0, 0, 1)))
+
+# rotation matrix for regular hold of end effector
+R_REG_HOLD = np.array((
+    (0, 1, 0),
+    (1, 0, 0),
+    (0, 0, -1)
+))
+
+# regular hold, rotated by 90 degrees
+R_ROT_HOLD = R_REG_HOLD @ rotate_90_z
+
 def create_grid(box_step_x=0.05, box_step_y=0.05):
     box_positions = []
     box_x_min = 0.3
@@ -115,21 +128,6 @@ def angle_wrap_pi(a):
 
 def get_tf_above_box(hold_matrix, box, z_offset=False):
     angle = angle_wrap_pi(-box.positions()[2])
-    '''
-    angle = 0
-
-    # find angle that is not equal to others
-    box_angles = box.positions()[:3]
-    for i, a in enumerate(box_angles):
-        other_indices = list(set(range(3)) - set((i,)))
-        if not isclose(abs(a), abs(box_angles[other_indices.pop()])) and not isclose(a, abs(box_angles[other_indices.pop()])):
-            angle = a
-            break
-
-    print("Angles are", box_angles)
-    print("Getting angle", angle)
-    '''
-
     rot_matrix = Rot_Z(angle)
 
     desired_translation = box.body_pose(0).translation()

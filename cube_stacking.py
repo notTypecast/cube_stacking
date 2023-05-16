@@ -1,10 +1,26 @@
 import argparse
 import utils
+from utils import R_REG_HOLD, R_ROT_HOLD
 import numpy as np
 import RobotDART as rd
 import BehaviorTree as bt
 from dartpy.math import Isometry3
 from math import ceil
+from time import time
+
+def mtime_lim(arg):
+    """
+    Argparse type function - for limiting mtime values
+    """
+    try:
+        f = float(arg)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid float value: '{arg}'")
+
+    if f < 1 or f > 5:
+        raise argparse.ArgumentTypeError(f"invalid value {f}, expected 1 <= mtime <= 5")
+    
+    return f
 
 parser = argparse.ArgumentParser(description = "\
 An implementation allowing the Franka robotic arm to stack three cubes in any order. \
@@ -12,10 +28,15 @@ The cubes are placed in a grid, spanning [0.3, 0.7] for x and [-0.4, 0.4] for y.
 Task space control, or trajectory optimization may be used to control the arm's movement.")
 
 parser.add_argument("-c", "--control", choices=["task", "topt"], default="task", help="Use task space control or trajectory optimization.")
+parser.add_argument("--mtime", type=mtime_lim, default=2, help="Total time per movement in trajectory optimization.")
 parser.add_argument("--cubepos", choices=["random", "line", "triangle"], default="random", help="Use random box positions, or one of two edge cases.")
+parser.add_argument("--order", choices=["random", "rgb", "rbg", "grb", "gbr", "brg", "bgr"], default="random", help="Use random box order, or specify some order.")
 args = parser.parse_args()
 
 CONTROLLER = args.control.upper()
+
+ERROR_THRESHOLD_LOW = 0.005 # low threshold, precise movement
+ERROR_THRESHOLD_HIGH = 0.1 # high threshold, fast movement
 
 if CONTROLLER == "TOPT":
     from gekko import GEKKO
@@ -24,22 +45,9 @@ if CONTROLLER == "TOPT":
     JOINT_LIMITS = [(2.8973, -2.8973), (1.7628, -1.7628), (2.8973, -2.8973), (-0.0698, -3.0718), (2.8973, -2.8973), (3.7525, -0.0175), (2.8973, -2.8973)]
     # joint speed limits, absolute value
     JOINT_SPEED_LIMITS = [2.1750, 2.1750, 2.1750, 2.1750, 2.6100, 2.6100, 2.6100]
+    # move time is standard for trajectory optimization, so don't need very high threshold
+    ERROR_THRESHOLD_HIGH = 2*ERROR_THRESHOLD_LOW
 
-# matrix to rotate 90 degrees in z axis
-rotate_90_z = np.array(((0, -1, 0), (1, 0, 0), (0, 0, 1)))
-
-# rotation matrix for regular hold of end effector
-R_REG_HOLD = np.array((
-    (0, 1, 0),
-    (1, 0, 0),
-    (0, 0, -1)
-))
-
-# regular hold, rotated by 90 degrees
-R_ROT_HOLD = R_REG_HOLD @ rotate_90_z
-
-ERROR_THRESHOLD_LOW = 0.005 # low threshold, precise movement
-ERROR_THRESHOLD_HIGH = 0.1 # high threshold, fast movement
 STACK_POSITION = (0.4, 0.5) # (x, y) of stack
 STACK_POSITION_MATRIX = utils.create_transformation_matrix(R_REG_HOLD, np.array((*STACK_POSITION, 0.15))) # desired transformation matrix with respect to wf of end effector when above stack location
 BOX_END_POS_MATRICES_I3 = [] # matrices of corresponding desired positions before leaving each box, respectively
@@ -111,9 +119,15 @@ blue_box = rd.Robot.create_box(box_size, blue_box_pose, "free", 0.1, [0.1, 0.1, 
 #########################################################
 # PROBLEM DEFINITION
 # Choose problem
-problems = utils.create_problems()
-problem_id = np.random.choice(len(problems))
-problem = problems[problem_id]
+if args.order == "random":
+    problems = utils.create_problems()
+    problem_id = np.random.choice(len(problems))
+    problem = problems[problem_id]
+else:
+    problem = []
+    cmap = {"r": "red", "g": "green", "b": "blue"}
+    for c in args.order:
+        problem.append(cmap[c])
 
 print('We want to put the', problem[2], 'cube on top of the', problem[1], 'and the', problem[1], 'cube on top of the', problem[0], 'cube.')
 #########################################################
@@ -160,6 +174,10 @@ class RobotState:
     prep_move = None
     # error threshold
     error_threshold = ERROR_THRESHOLD_HIGH
+    # total time to complete movement (only relevant for trajectory optimization)
+    move_time = args.mtime
+    # time started gripping, used to avoid getting stuck when gripping if threshold can't be reached
+    grip_start_time = None
 
 class PITaskController:
     """
@@ -228,8 +246,9 @@ class TrajectoryOptController:
         Returns next commands for control to given target
         """
         if self.solution is None:
-            self.solution = self.calculate()
-        
+            self.solution = self.calculate(RobotState.move_time)
+            if not self.solution:
+                return False
         try:
             return next(self.solution)
         except StopIteration:
@@ -274,12 +293,15 @@ class TrajectoryOptController:
         for i in range(7):
             model.fix(state[i], pos=len(model.time)-1, val=self.target_pos[i])
 
-        # objective function to minimize (squared norm of speed vector)
+        # objective function to minimize (sum of squared joint speeds)
         model.Obj(sum([control[i]**2 for i in range(7)]))
 
         # non-linear solver
         model.options.IMODE = 6
-        model.solve(disp=False)
+        try:
+            model.solve(disp=False)
+        except:
+            return False
 
         #print(model.options.SOLVETIME)
 
@@ -299,7 +321,7 @@ class TrajectoryOptController:
     
     # black-box optimization
     @staticmethod
-    def ik_opt(pos, tf_desired, min_error = 1e-12):
+    def ik_opt(pos, tf_desired, min_error = 1e-12, r_const=0.001):
         """
         Calculates robot positions (joint angles) from given transformation matrix using black-box optimization
         """
@@ -310,9 +332,9 @@ class TrajectoryOptController:
             error_in_body_frame = rd.math.logMap(tf.inverse().multiply(tf_desired))
 
             ferror = np.linalg.norm(error_in_body_frame)
-            fjoint = np.linalg.norm(x)**2
-            # term r*fjoint helps minimize the joint angles
-            return ferror + 0.001 * fjoint
+            fjoint = np.linalg.norm(x)
+            # term r*fjoint keeps joint angles close to 0
+            return ferror + r_const*fjoint
 
         # Optimize using any optimizer
         res = minimize(eval, pos, method='SLSQP', tol=min_error)
@@ -336,7 +358,13 @@ def moveToPosition():
     Low-level controller
     Moves robot so end-effector reaches specific position
     """
-    commands = controller.update()
+    while True:
+        commands = controller.update()
+        if commands is not False:
+            break
+        # TODO: Somehow reset position here
+        print("Failed to find solution")
+        exit(0)
 
     if commands is None:
         return True
@@ -417,7 +445,7 @@ def moveToEndPosition():
         # if we just moved above initial position
         if RobotState.move_state == 0:
             RobotState.move_state = 1
-            # Set new target as 0.3 above final target
+            # Set new target as 0.2 above final target
             new_pos = utils.isom3_to_np(RobotState.target)
             new_pos[2, 3] += 0.2
             tf = Isometry3(new_pos)
@@ -425,7 +453,8 @@ def moveToEndPosition():
         # if we just moved above end position
         elif RobotState.move_state == 1:
             # we need more precise movement when releasing, so reduce error threshold
-            RobotState.error_threshold = ERROR_THRESHOLD_LOW
+            if CONTROLLER == "TASK":
+                RobotState.error_threshold = ERROR_THRESHOLD_LOW
             RobotState.move_state = 2
             # Set new target as final target
             controller.set_target(RobotState.target)
@@ -443,7 +472,11 @@ def closeGripper():
     """
     robot.set_commands([0, 0, 0, 0, 0, 0, 0, -0.1, 0])
 
-    if robot.positions()[7] < 0.0201:
+    if RobotState.grip_start_time is None:
+        RobotState.grip_start_time = time()
+
+    if robot.positions()[7] < 0.0201 or time() - RobotState.grip_start_time > 1:
+        RobotState.grip_start_time = None
         RobotState.gripping = True
         return True
     
@@ -474,13 +507,12 @@ def createBehaviorTree():
     Creates behavior tree that solves given problem
     """
     box_map = {"red": red_box, "green": green_box, "blue": blue_box}
+    
     # determine what hold to use for each box (normal or rotated)
     box_holds = {}
     # index of box that needs to be moved first
     # necessary for when first box is fully surrounded, in which case another box must be moved first
     prep_move_box_idx = None
-
-    box_colors = list(box_map.keys())
 
     # loop through boxes in order that they must be picked up in
     for i in range(3):
@@ -511,8 +543,7 @@ def createBehaviorTree():
     # assign regular hold to any box that might not have one yet
     for box in box_map:
         if box not in box_holds:
-            box_holds[box] = R_REG_HOLD
-                
+            box_holds[box] = R_REG_HOLD                
 
     def checkBoxPosition(box_color, pos):
         """
@@ -538,6 +569,8 @@ def createBehaviorTree():
         if res:
             RobotState.moving = False
             RobotState.above = False
+        elif RobotState.grip_start_time is not None:
+            RobotState.grip_start_time = None
 
         return res
     
@@ -666,22 +699,14 @@ def createBehaviorTree():
 
 root = createBehaviorTree()
 
-'''
-m = Isometry3(utils.create_transformation_matrix(np.eye(3), np.array((
-    (0, 0, 1.15)
-))))
-
-controller.set_target(m)
-'''
-
-red_box.set_draw_axis(red_box.body_name(0), 1.)
-blue_box.set_draw_axis(blue_box.body_name(0), 1.)
-green_box.set_draw_axis(green_box.body_name(0), 1.)
+#red_box.set_draw_axis(red_box.body_name(0), 1.)
+#blue_box.set_draw_axis(blue_box.body_name(0), 1.)
+#green_box.set_draw_axis(green_box.body_name(0), 1.)
 #robot.set_draw_axis(robot.body_name(0), 1.)
 #robot.set_draw_axis(eef_link_name, 1.)
-np.set_printoptions(suppress=True)
+#np.set_printoptions(suppress=True)
 
-#graphics.record_video("demos/sdemo.mp4")
+#graphics.record_video("demos/demo_topt.mp4")
 
 for step in range(total_steps):
     if (simu.schedule(simu.control_freq())):
