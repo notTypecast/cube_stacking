@@ -5,3 +5,7 @@ python/BehaviorTree/__pycache__/
 python/bt_test.py
 
 python/TODO.txt
+
+cpp/.*
+cpp/build/
+
