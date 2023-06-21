@@ -1,0 +1,162 @@
+#include <robot_dart/robot_dart_simu.hpp>
+#include <robot_dart/robots/franka.hpp>
+
+#ifdef GRAPHIC
+#include <robot_dart/gui/magnum/graphics.hpp>
+#endif
+
+#include <dart/dynamics/BodyNode.hpp>
+
+#include <pinocchio/parsers/urdf.hpp>
+#include <pinocchio/algorithm/joint-configuration.hpp>
+#include <pinocchio/algorithm/kinematics.hpp>
+#include <pinocchio/algorithm/frames.hpp>
+#include <pinocchio/fwd.hpp>
+
+#include <cpp/utils.hpp>
+#include <BehaviorTree/tree.cpp>
+#include <control/PI_task.cpp>
+
+#include <iostream>
+#include <random>
+
+namespace pin = pinocchio;
+
+int main() {
+    std::srand(std::time(0));
+
+    double dt = 0.001;
+    double simulation_time = 20.;
+    int total_steps = static_cast<int>(std::ceil(simulation_time / dt));
+
+    // Create robot_dart robot object (for simulation)
+    auto robot = std::make_shared<robot_dart::robots::Franka>(1. / dt);
+
+    // set initial joint positions
+    auto position = robot_dart::make_vector({0., M_PI / 4., 0., -M_PI / 4., 0., M_PI / 2., 0., 0.04, 0.04});
+    robot->set_positions(position);
+
+    // Create pinocchio robot objects (for kinematics)
+    pin::Model model;
+    pin::urdf::buildModel("./src/urdf/franka.urdf", model);
+
+    pin::Data data(model);
+
+    const int EEF_ID = 7;
+    const int EEF_JOINT_FRAME_ID = 22;
+
+    for (int i = 0; i < model.njoints; ++i) {
+        std::cout << model.names[i] << std::endl;
+    }
+
+    pin::forwardKinematics(model, data, position);
+    const pin::SE3 desired(MAIN_R, Eigen::Vector3d(0.3, 0.3, 0.4));
+
+    double max_force = 5.;
+    robot->set_force_lower_limits(robot_dart::make_vector({-max_force, -max_force}), {"panda_finger_joint1", "panda_finger_joint2"});
+    robot->set_force_upper_limits(robot_dart::make_vector({max_force, max_force}), {"panda_finger_joint1", "panda_finger_joint2"});
+
+    robot->set_actuator_types("servo"); // you can use torque here
+
+    // Create boxes
+    auto box_positions = create_grid();
+
+    Eigen::Vector3d box_size;
+    box_size << 0.04, 0.04, 0.04;
+
+    std::random_device rd; // only used once to initialise (seed) engine
+    std::mt19937 rng(rd()); // random-number engine used (Mersenne-Twister in this case)
+    std::uniform_int_distribution<int> box_dist(0, box_positions.size() - 1);
+
+    Eigen::Vector6d box_pose;
+
+    // Red Box
+    // Random cube position
+    int red_box_pt = box_dist(rng);
+    box_pose << 0., 0., 0., box_positions[red_box_pt][0], box_positions[red_box_pt][1], box_size[2] / 2.0;
+    auto red_box = robot_dart::Robot::create_box(box_size, box_pose, "free", 0.1, dart::Color::Red(1.), "red_box");
+
+    // Green Box
+    // Random cube position
+    int green_box_pt = box_dist(rng);
+    while (green_box_pt == red_box_pt)
+        green_box_pt = box_dist(rng);
+    box_pose << 0., 0., 0., box_positions[green_box_pt][0], box_positions[green_box_pt][1], box_size[2] / 2.0;
+    auto green_box = robot_dart::Robot::create_box(box_size, box_pose, "free", 0.1, dart::Color::Green(1.), "green_box");
+
+    // Blue Box
+    // Random cube position
+    int box_pt = box_dist(rng);
+    while (box_pt == green_box_pt || box_pt == red_box_pt)
+        box_pt = box_dist(rng);
+    box_pose << 0., 0., 0., box_positions[box_pt][0], box_positions[box_pt][1], box_size[2] / 2.0;
+    auto blue_box = robot_dart::Robot::create_box(box_size, box_pose, "free", 0.1, dart::Color::Blue(1.), "blue_box");
+
+    // Choose problem
+    auto problems = create_problems();
+
+    std::uniform_int_distribution<int> prob_dist(0, problems.size() - 1);
+    int problem_id = prob_dist(rng);
+    auto problem = problems[problem_id];
+    std::cout << "We want to put the " << problem[2] << " cube on top of the " << problem[1] << " and the " << problem[1] << " cube on top of the " << problem[0] << " cube." << std::endl;
+
+    // Create graphics
+#ifdef GRAPHIC
+    robot_dart::gui::magnum::GraphicsConfiguration configuration;
+    configuration.width = 1280; // you can change the resolution
+    configuration.height = 960;
+    auto graphics = std::make_shared<robot_dart::gui::magnum::Graphics>(configuration);
+#endif
+
+    // Create simulator object
+    robot_dart::RobotDARTSimu simu(dt);
+    simu.set_collision_detector("fcl"); // you can use bullet here
+    simu.set_control_freq(100);
+#ifdef GRAPHIC
+    simu.set_graphics(graphics);
+    graphics->look_at({0., 4.5, 2.5}, {0., 0., 0.25});
+#endif
+    simu.add_checkerboard_floor();
+    simu.add_robot(robot);
+    simu.add_robot(red_box);
+    simu.add_robot(green_box);
+    simu.add_robot(blue_box);
+
+    // Create control object
+    PITask task(desired, dt);
+
+    int i = 0;
+    for (auto& frame: model.frames) {
+        std::cout << i++ << std::endl;
+        std::cout << frame << std::endl;
+    }
+
+    for (int i = 0; i < total_steps; i++) {
+        if (simu.schedule(simu.control_freq())) {
+            // Control here!
+            //pin::updateFramePlacements(model, data);
+            Eigen::Matrix<double, 6, 9> J = Eigen::Matrix<double, 6, 9>::Zero();
+            //pin::computeJointJacobian(model, data, position, EEF_ID, J);
+            pin::computeFrameJacobian(model, data, position, EEF_JOINT_FRAME_ID, pin::ReferenceFrame::LOCAL_WORLD_ALIGNED, J);
+            std::cout << "Pin jac: " << std::endl << J << std::endl;
+            std::cout << "RD jac: " << std::endl << robot->jacobian("panda_hand") << std::endl;
+            auto controls = task.update(data.oMi[EEF_ID], robot->jacobian("panda_hand"));
+            robot->set_commands(controls);
+            //std::cout << "Controls: " << controls.transpose() << std::endl;
+
+            // Integrate model (control frequency is 1/10 of simulation frequency, so we multiply controls by 10dt)
+            position = pin::integrate(model, position, controls * 10 * dt);
+            forwardKinematics(model, data, position);
+
+            //std::cout << "Position: " << position.transpose() << std::endl;
+            //std::cout << "RobotDart Position: " << robot->positions().transpose() << std::endl;
+
+        }
+
+        if (simu.step_world())
+            break;
+    }
+
+    robot.reset();
+    return 0;
+}

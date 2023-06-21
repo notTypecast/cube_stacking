@@ -1,2 +1,0 @@
-class InvalidTreeError(Exception):
-    pass
