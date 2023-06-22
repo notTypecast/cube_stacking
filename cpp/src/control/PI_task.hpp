@@ -9,17 +9,19 @@
 #include "pinocchio/algorithm/jacobian.hpp"
 #include "pinocchio/algorithm/joint-configuration.hpp"
 
-#define ERROR_THRESHOLD_LOW 0.01
+#define ERROR_THRESHOLD_LOW 0.005
 #define ERROR_THRESHOLD_HIGH 0.1
 
 namespace pin = pinocchio;
 
 class PITask {
     public:
-        PITask(const pin::SE3&, double, double = 2, double = 0.005);
-        void set_target(const pin::SE3&);
-        Eigen::Vector6d get_error(const pin::SE3&);
-        Eigen::Matrix<double, 9, 1> update(const pin::SE3&, const Eigen::Matrix<double, 6, 9>&);
+        PITask(pin::SE3&, double, double = 2, double = 0.005);
+        void set_target(pin::SE3&);
+        const pin::SE3& get_target() const;
+        void set_threshold(double);
+        Eigen::Vector6d get_error(const pin::SE3&) const;
+        Eigen::Matrix<double, 9, 1> update(pin::SE3&, Eigen::Matrix<double, 6, 9>&);
 
     private:
         pin::SE3 target;

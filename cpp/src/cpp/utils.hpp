@@ -4,9 +4,15 @@
 #include <Eigen/Core>
 #include <math.h>
 
+#include <pinocchio/fwd.hpp>
+
+namespace pin = pinocchio;
+
 const Eigen::Matrix3d MAIN_R = (Eigen::Matrix3d() << 0, 1, 0,
                                                     1, 0, 0,
                                                     0, 0, -1).finished();
+
+const Eigen::Vector2d STACK_POS = (Eigen::Vector2d() << 0.4, 0.5).finished();
 
 std::vector<Eigen::Vector2d> create_grid(double box_step_x = 0.05, double box_step_y = 0.05) {
     std::vector<Eigen::Vector2d> box_positions;
@@ -54,5 +60,21 @@ std::vector<std::vector<std::string>> create_problems() {
 Eigen::Matrix<double, 9, 6> damped_pseudoinverse(const Eigen::Matrix<double, 6, 9>& jacobian, double l = 0.01) {
     return jacobian.transpose() * (jacobian * jacobian.transpose() + l * l * Eigen::Matrix<double, 6, 6>::Identity()).inverse();
 }
+
+Eigen::Vector6d calc_error(pin::SE3 target, pin::SE3 current) {
+    Eigen::Vector3d error_rot = pin::log3(target.rotation() * current.rotation().transpose());
+    Eigen::Vector3d error_pos = target.translation() - current.translation();
+
+    Eigen::Vector6d error;
+    error << error_rot, error_pos;
+
+    return error;
+}
+
+pin::SE3 get_tf_above_box(Eigen::Matrix<double, 6, 1> box_pos, bool z_offset = false) {
+    return pin::SE3(MAIN_R, Eigen::Vector3d(box_pos[3], box_pos[4], box_pos[5] + (z_offset ? 0.4 : 0.1)));
+}
+
+
 
 #endif // FRANKA_UTILS_HPP

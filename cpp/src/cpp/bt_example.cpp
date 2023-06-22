@@ -1,4 +1,5 @@
 #include <BehaviorTree/tree.cpp>
+#include <iostream>
 
 int main() {
     BehaviorTree::SequenceNode main_sequence(nullptr);

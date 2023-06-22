@@ -1,3 +1,7 @@
+#include <iostream>
+#include <random>
+#include <map>
+
 #include <robot_dart/robot_dart_simu.hpp>
 #include <robot_dart/robots/franka.hpp>
 
@@ -14,11 +18,9 @@
 #include <pinocchio/fwd.hpp>
 
 #include <cpp/utils.hpp>
-#include <BehaviorTree/tree.cpp>
 #include <control/PI_task.cpp>
+#include <robot_tree/robot_tree.cpp>
 
-#include <iostream>
-#include <random>
 
 namespace pin = pinocchio;
 
@@ -26,7 +28,7 @@ int main() {
     std::srand(std::time(0));
 
     double dt = 0.001;
-    double simulation_time = 20.;
+    double simulation_time = 40.;
     int total_steps = static_cast<int>(std::ceil(simulation_time / dt));
 
     // Create robot_dart robot object (for simulation)
@@ -42,15 +44,8 @@ int main() {
 
     pin::Data data(model);
 
-    const int EEF_ID = 7;
-    const int EEF_JOINT_FRAME_ID = 22;
-
-    for (int i = 0; i < model.njoints; ++i) {
-        std::cout << model.names[i] << std::endl;
-    }
-
     pin::forwardKinematics(model, data, position);
-    const pin::SE3 desired(MAIN_R, Eigen::Vector3d(0.3, 0.3, 0.4));
+    pin::SE3 desired(MAIN_R, Eigen::Vector3d(0.3, 0.3, 0.4));
 
     double max_force = 5.;
     robot->set_force_lower_limits(robot_dart::make_vector({-max_force, -max_force}), {"panda_finger_joint1", "panda_finger_joint2"});
@@ -114,7 +109,7 @@ int main() {
     simu.set_control_freq(100);
 #ifdef GRAPHIC
     simu.set_graphics(graphics);
-    graphics->look_at({0., 4.5, 2.5}, {0., 0., 0.25});
+    graphics->look_at({0., 2.5, 1.5}, {0., 0., 0.25});
 #endif
     simu.add_checkerboard_floor();
     simu.add_robot(robot);
@@ -125,32 +120,40 @@ int main() {
     // Create control object
     PITask task(desired, dt);
 
-    int i = 0;
-    for (auto& frame: model.frames) {
-        std::cout << i++ << std::endl;
-        std::cout << frame << std::endl;
+    std::vector<Eigen::Matrix<double, 6, 1>> total_pos;
+
+    std::map<std::string, std::shared_ptr<robot_dart::Robot>> box_map;
+    box_map["red"] = red_box;
+    box_map["green"] = green_box;
+    box_map["blue"] = blue_box;
+
+    for (auto box: problem) {
+        total_pos.push_back(box_map[box]->positions());
     }
+
+    struct RobotState state;
+    state.EEF_FRAME_ID = model.getFrameId("panda_hand");
+    state.above = false;
+    state.move_state = -1;
+    state.gripping = false;
+    state.moving = false;
+
+    std::shared_ptr<BehaviorTree::Root> root = createBehaviorTree(total_pos, robot, model, data, task, state);
 
     for (int i = 0; i < total_steps; i++) {
         if (simu.schedule(simu.control_freq())) {
-            // Control here!
-            //pin::updateFramePlacements(model, data);
+            root->tick();
+            /*
+            position = robot->positions();
             Eigen::Matrix<double, 6, 9> J = Eigen::Matrix<double, 6, 9>::Zero();
-            //pin::computeJointJacobian(model, data, position, EEF_ID, J);
             pin::computeFrameJacobian(model, data, position, EEF_JOINT_FRAME_ID, pin::ReferenceFrame::LOCAL_WORLD_ALIGNED, J);
-            std::cout << "Pin jac: " << std::endl << J << std::endl;
-            std::cout << "RD jac: " << std::endl << robot->jacobian("panda_hand") << std::endl;
-            auto controls = task.update(data.oMi[EEF_ID], robot->jacobian("panda_hand"));
+            Eigen::Matrix<double, 6, 9> J2;
+            J2.block(0, 0, 3, 9) = J.block(3, 0, 3, 9);
+            J2.block(3, 0, 3, 9) = J.block(0, 0, 3, 9);
+            
+            auto controls = task.update(data.oMf[EEF_JOINT_FRAME_ID], J2);
             robot->set_commands(controls);
-            //std::cout << "Controls: " << controls.transpose() << std::endl;
-
-            // Integrate model (control frequency is 1/10 of simulation frequency, so we multiply controls by 10dt)
-            position = pin::integrate(model, position, controls * 10 * dt);
-            forwardKinematics(model, data, position);
-
-            //std::cout << "Position: " << position.transpose() << std::endl;
-            //std::cout << "RobotDart Position: " << robot->positions().transpose() << std::endl;
-
+            */
         }
 
         if (simu.step_world())
