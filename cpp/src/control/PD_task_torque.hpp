@@ -1,21 +1,22 @@
-#ifndef PI_TASK_H
-#define PI_TASK_H
+#ifndef PD_TASK_TORQUE_H
+#define PD_TASK_TORQUE_H
 
 #ifndef CONTROLLER_BASE_H
 #include <control/ControllerBase.cpp>
 #endif
 
+#include <pinocchio/algorithm/rnea.hpp>
 
-class PITask : public ControllerBase {
+
+class PDTaskTorque : public ControllerBase {
     public:
-        PITask(pin::SE3&, double, double = 2, double = 0.005);
-        void set_target(pin::SE3&) override;
+        PDTaskTorque(pin::SE3&, double, double = 2, double = 0.01);
         Eigen::Matrix<double, 9, 1> update(std::shared_ptr<robot_dart::robots::Franka>&, pin::Model&, pin::Data&, RobotState&) override;
 
     protected:
         double Kp;
-        double Ki;
-        Eigen::Vector6d error_sum;
+        double Kd;
 };
 
-#endif // PI_TASK_H
+
+#endif // PD_TASK_TORQUE_H

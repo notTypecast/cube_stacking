@@ -15,20 +15,34 @@
 #include <pinocchio/algorithm/joint-configuration.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/algorithm/frames.hpp>
+#include <pinocchio/algorithm/rnea.hpp>
 #include <pinocchio/fwd.hpp>
 
 #include <cpp/utils.hpp>
 #include <control/PI_task.cpp>
+#include <control/PD_task_torque.cpp>
 #include <robot_tree/robot_tree.cpp>
 
+enum CONTROL_TYPE {
+    SERVO,
+    TORQUE,
+    NONE
+};
 
 namespace pin = pinocchio;
 
-int main() {
+int main(int argc, char** argv) {
+    enum CONTROL_TYPE control_type = argc == 1 ? SERVO : (strcmp(argv[1], "servo") == 0 ? SERVO : (strcmp(argv[1], "torque") == 0 ? TORQUE : NONE));
+    
+    if (control_type == NONE) {
+        std::cout << "Usage: ./cube_stacking [servo/torque]" << std::endl;
+        return 1;
+    }
+
     std::srand(std::time(0));
 
     double dt = 0.001;
-    double simulation_time = 40.;
+    double simulation_time = 100.;
     int total_steps = static_cast<int>(std::ceil(simulation_time / dt));
 
     // Create robot_dart robot object (for simulation)
@@ -51,7 +65,7 @@ int main() {
     robot->set_force_lower_limits(robot_dart::make_vector({-max_force, -max_force}), {"panda_finger_joint1", "panda_finger_joint2"});
     robot->set_force_upper_limits(robot_dart::make_vector({max_force, max_force}), {"panda_finger_joint1", "panda_finger_joint2"});
 
-    robot->set_actuator_types("servo"); // you can use torque here
+    robot->set_actuator_types(control_type == SERVO ? "servo" : "torque");
 
     // Create boxes
     auto box_positions = create_grid();
@@ -117,9 +131,6 @@ int main() {
     simu.add_robot(green_box);
     simu.add_robot(blue_box);
 
-    // Create control object
-    PITask task(desired, dt);
-
     std::vector<Eigen::Matrix<double, 6, 1>> total_pos;
 
     std::map<std::string, std::shared_ptr<robot_dart::Robot>> box_map;
@@ -138,26 +149,25 @@ int main() {
     state.gripping = false;
     state.moving = false;
 
-    std::shared_ptr<BehaviorTree::Root> root = createBehaviorTree(total_pos, robot, model, data, task, state);
+    std::shared_ptr<BehaviorTree::Root> root;
+
+    if (control_type == SERVO) {
+        PITask controller(desired, dt);
+        root = createBehaviorTree(total_pos, robot, model, data, controller, state);
+    }
+    else {
+        PDTaskTorque controller(desired, dt);
+        root = createBehaviorTree(total_pos, robot, model, data, controller, state);
+    }
 
     for (int i = 0; i < total_steps; i++) {
         if (simu.schedule(simu.control_freq())) {
             root->tick();
-            /*
-            position = robot->positions();
-            Eigen::Matrix<double, 6, 9> J = Eigen::Matrix<double, 6, 9>::Zero();
-            pin::computeFrameJacobian(model, data, position, EEF_JOINT_FRAME_ID, pin::ReferenceFrame::LOCAL_WORLD_ALIGNED, J);
-            Eigen::Matrix<double, 6, 9> J2;
-            J2.block(0, 0, 3, 9) = J.block(3, 0, 3, 9);
-            J2.block(3, 0, 3, 9) = J.block(0, 0, 3, 9);
-            
-            auto controls = task.update(data.oMf[EEF_JOINT_FRAME_ID], J2);
-            robot->set_commands(controls);
-            */
         }
 
-        if (simu.step_world())
+        if (simu.step_world()) {
             break;
+        }
     }
 
     robot.reset();

@@ -14,7 +14,7 @@
 
 namespace pin = pinocchio;
 
-std::shared_ptr<BehaviorTree::FallbackNode> createBoxFallback(const Eigen::Matrix<double, 6, 1>&, int, std::shared_ptr<robot_dart::robots::Franka>&, pin::Model&, pin::Data&, PITask&, RobotState&);
-std::shared_ptr<BehaviorTree::Root> createBehaviorTree(const std::vector<Eigen::Matrix<double, 6, 1>>&, std::shared_ptr<robot_dart::robots::Franka>&, pin::Model&, pin::Data&, PITask&, RobotState&);
+std::shared_ptr<BehaviorTree::FallbackNode> createBoxFallback(const Eigen::Matrix<double, 6, 1>&, int, std::shared_ptr<robot_dart::robots::Franka>&, pin::Model&, pin::Data&, ControllerBase&, RobotState&);
+std::shared_ptr<BehaviorTree::Root> createBehaviorTree(const std::vector<Eigen::Matrix<double, 6, 1>>&, std::shared_ptr<robot_dart::robots::Franka>&, pin::Model&, pin::Data&, ControllerBase&, RobotState&);
 
 #endif // ROBOT_TREE_H

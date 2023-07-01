@@ -1,26 +1,23 @@
 #include <control/controllers.hpp>
 
-bool moveToPosition(std::shared_ptr<robot_dart::robots::Franka> &robot, PITask &task, RobotState &state, pin::SE3 &current, Eigen::Matrix<double, 6, 9> &jacobian, double gripper_pos) {
-    auto commands = task.update(current, jacobian);
-
-    if (commands.isZero(0)) {
-        return true;
-    }
+bool moveToPosition(std::shared_ptr<robot_dart::robots::Franka> &robot, pin::Model &model, pin::Data &data, ControllerBase &task, RobotState &state) {
+    // TODO add arguments here
+    auto commands = task.update(robot, model, data, state);
 
     if (state.gripping) {
-        commands[7] = gripper_pos < 0.02 ? 0.0 : -0.1;
+        commands[7] = robot->positions()[7] < 0.02 ? 0.0 : -0.1;
     }
-    else if (gripper_pos < 0.039) {
+    else if (robot->positions()[7] < 0.039) {
         commands[7] = 0.1;
     }
 
     robot->set_commands(commands);
 
-    return false;
+    return task.is_done();
 }
 
-bool moveToGripPosition(std::shared_ptr<robot_dart::robots::Franka> &robot, PITask &task, RobotState &state, pin::SE3 &current, Eigen::Matrix<double, 6, 9> &jacobian, double gripper_pos) {
-    bool res = moveToPosition(robot, task, state, current, jacobian, gripper_pos);
+bool moveToGripPosition(std::shared_ptr<robot_dart::robots::Franka> &robot, pin::Model &model, pin::Data &data, ControllerBase &task, RobotState &state) {
+    bool res = moveToPosition(robot, model, data, task, state);
 
     if (res) {
         if (!state.above) {
@@ -41,16 +38,15 @@ bool moveToGripPosition(std::shared_ptr<robot_dart::robots::Franka> &robot, PITa
     return false;
 }
 
-bool moveToEndPosition(std::shared_ptr<robot_dart::robots::Franka> &robot, PITask &task, RobotState &state, pin::SE3 &current, Eigen::Matrix<double, 6, 9> &jacobian, double gripper_pos) {
+bool moveToEndPosition(std::shared_ptr<robot_dart::robots::Franka> &robot, pin::Model &model, pin::Data &data, ControllerBase &task, RobotState &state) {
     if (state.move_state == -1) {
         state.move_state = 0;
         state.target = task.get_target();
-        // TODO: make sure editing current is fine
-        current.translation()[2] += 0.3;
-        task.set_target(current);
+        data.oMf[state.EEF_FRAME_ID].translation()[2] += 0.3;
+        task.set_target(data.oMf[state.EEF_FRAME_ID]);
     }
 
-    bool res = moveToPosition(robot, task, state, current, jacobian, gripper_pos);
+    bool res = moveToPosition(robot, model, data, task, state);
 
     if (res) {
         if (state.move_state == 0) {
@@ -74,10 +70,10 @@ bool moveToEndPosition(std::shared_ptr<robot_dart::robots::Franka> &robot, PITas
     return false;
 }
 
-bool closeGripper(std::shared_ptr<robot_dart::robots::Franka> &robot, RobotState& state, double gripper_pos) {
+bool closeGripper(std::shared_ptr<robot_dart::robots::Franka> &robot, RobotState& state) {
     robot->set_commands((Eigen::Matrix<double, 9, 1>() << 0, 0, 0, 0, 0, 0, 0, -0.1, 0).finished());
 
-    if (gripper_pos < 0.0201) {
+    if (robot->positions()[7] < 0.0201) {
         state.gripping = true;
         return true;
     }
@@ -85,10 +81,10 @@ bool closeGripper(std::shared_ptr<robot_dart::robots::Franka> &robot, RobotState
     return false;
 }
 
-bool openGripper(std::shared_ptr<robot_dart::robots::Franka> &robot, RobotState& state, double gripper_pos) {
+bool openGripper(std::shared_ptr<robot_dart::robots::Franka> &robot, RobotState& state) {
     robot->set_commands((Eigen::Matrix<double, 9, 1>() << 0, 0, 0, 0, 0, 0, 0, 0.05, 0).finished());
 
-    if (gripper_pos > 0.039) {
+    if (robot->positions()[7] > 0.039) {
         robot->set_commands((Eigen::Matrix<double, 9, 1>() << 0, 0, 0, 0, 0, 0, 0, 0, 0).finished());
         state.gripping = false;
         state.moving = false;
