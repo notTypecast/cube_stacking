@@ -10,7 +10,7 @@
 bool moveToPosition(std::shared_ptr<robot_dart::robots::Franka>&, pin::Model&, pin::Data&, ControllerBase&, RobotState&);
 bool moveToGripPosition(std::shared_ptr<robot_dart::robots::Franka>&, pin::Model&, pin::Data&, ControllerBase&, RobotState&);
 bool moveToEndPosition(std::shared_ptr<robot_dart::robots::Franka>&, pin::Model&, pin::Data&, ControllerBase&, RobotState&);
-bool closeGripper(std::shared_ptr<robot_dart::robots::Franka>&, RobotState&);
-bool openGripper(std::shared_ptr<robot_dart::robots::Franka>&, RobotState&);
+bool closeGripper(std::shared_ptr<robot_dart::robots::Franka>&, pin::Model&, pin::Data&, ControllerBase&, RobotState&);
+bool openGripper(std::shared_ptr<robot_dart::robots::Franka>&, pin::Model&, pin::Data&, ControllerBase&, RobotState&);
 
 #endif // CONTROLLERS_H

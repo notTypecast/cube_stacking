@@ -27,19 +27,26 @@ struct RobotState {
 
 class ControllerBase {
     public:
-        ControllerBase(pin::SE3&, double);
+        ControllerBase(pin::SE3&, double, float, float, float);
         virtual void set_target(pin::SE3&);
         const pin::SE3& get_target() const;
         void set_threshold(double);
         Eigen::Vector6d get_error(const pin::SE3&) const;
         virtual Eigen::Matrix<double, 9, 1> update(std::shared_ptr<robot_dart::robots::Franka>&, pin::Model&, pin::Data&, RobotState&) = 0;
+        virtual Eigen::Matrix<double, 9, 1> rest_commands(std::shared_ptr<robot_dart::robots::Franka>&, pin::Model&, pin::Data&, RobotState&) = 0;
         bool is_done();
+        float get_close_gripper_const();
+        float get_gripping_c1();
+        float get_gripping_c2();
 
     protected:
         pin::SE3 target;
         double dt;
         double error_threshold;
         bool done;
+        float close_gripper_const;
+        float gripping_c1;
+        float gripping_c2;
 
 };
 

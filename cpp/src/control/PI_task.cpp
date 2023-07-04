@@ -1,6 +1,11 @@
 #include <control/PI_task.hpp>
 
-PITask::PITask(pin::SE3 &target, double dt, double Kp, double Ki) : ControllerBase(target, dt), Kp(Kp), Ki(Ki), error_sum(Eigen::Vector6d::Zero()) {}
+PITask::PITask(pin::SE3 &target, double dt, double Kp, double Ki) : 
+    ControllerBase(target, dt, -0.1f, 0.0f, -0.1f), 
+    Kp(Kp), 
+    Ki(Ki), 
+    error_sum(Eigen::Vector6d::Zero()) 
+    {}
 
 void PITask::set_target(pin::SE3 &target) {
     this->error_sum = Eigen::Vector6d::Zero();
@@ -26,5 +31,9 @@ Eigen::Matrix<double, 9, 1> PITask::update(std::shared_ptr<robot_dart::robots::F
     }
 
     this->done = true;
+    return Eigen::Matrix<double, 9, 1>::Zero();
+}
+
+Eigen::Matrix<double, 9, 1> PITask::rest_commands(std::shared_ptr<robot_dart::robots::Franka> &robot, pin::Model &model, pin::Data &data, RobotState &state) {
     return Eigen::Matrix<double, 9, 1>::Zero();
 }

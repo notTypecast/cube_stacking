@@ -33,6 +33,9 @@ namespace pin = pinocchio;
 
 int main(int argc, char** argv) {
     enum CONTROL_TYPE control_type = argc == 1 ? SERVO : (strcmp(argv[1], "servo") == 0 ? SERVO : (strcmp(argv[1], "torque") == 0 ? TORQUE : NONE));
+
+    //int tmp_kp = std::stoi(argv[2]);
+    //int tmp_kd = std::stoi(argv[3]);
     
     if (control_type == NONE) {
         std::cout << "Usage: ./cube_stacking [servo/torque]" << std::endl;
@@ -124,6 +127,7 @@ int main(int argc, char** argv) {
 #ifdef GRAPHIC
     simu.set_graphics(graphics);
     graphics->look_at({0., 2.5, 1.5}, {0., 0., 0.25});
+    //graphics->record_video("demo.mp4");
 #endif
     simu.add_checkerboard_floor();
     simu.add_robot(robot);

@@ -64,8 +64,8 @@ std::shared_ptr<BehaviorTree::FallbackNode> createBoxFallback(const Eigen::Matri
     current_pos_fb->add_child(close_to_pos_cond);
     current_pos_fb->add_child(move_to_pos_action);
 
-    auto grab_action = std::make_shared<BehaviorTree::ActionNode>([robot, &state]() mutable {
-        bool res = closeGripper(robot, state);
+    auto grab_action = std::make_shared<BehaviorTree::ActionNode>([robot, model, &data, &task, &state]() mutable {
+        bool res = closeGripper(robot, model, data, task, state);
 
         if (res) {
             return BehaviorTree::Status::SUCCESS;
@@ -114,8 +114,8 @@ std::shared_ptr<BehaviorTree::FallbackNode> createBoxFallback(const Eigen::Matri
     stack_pos_fb->add_child(in_stack_pos_cond);
     stack_pos_fb->add_child(move_to_stack_action);
 
-    auto release_gripper_action = std::make_shared<BehaviorTree::ActionNode>([robot, &state]() mutable {
-        bool res = openGripper(robot, state);
+    auto release_gripper_action = std::make_shared<BehaviorTree::ActionNode>([robot, model, &data, &task, &state]() mutable {
+        bool res = openGripper(robot, model, data, task, state);
 
         if (res) {
             return BehaviorTree::Status::SUCCESS;
@@ -143,6 +143,16 @@ std::shared_ptr<BehaviorTree::Root> createBehaviorTree(const std::vector<Eigen::
         auto fb = createBoxFallback(box_positions.at(i), i, robot, model, data, task, state);
         main_seq->add_child(fb);
     }
+
+    auto rest_action = std::make_shared<BehaviorTree::ActionNode>([robot, model, &data, &task, &state]() mutable {
+        auto commands = task.rest_commands(robot, model, data, state);
+
+        robot->set_commands(commands);
+
+        return BehaviorTree::Status::RUNNING;
+    });
+
+    main_seq->add_child(rest_action);
 
     auto root = std::make_shared<BehaviorTree::Root>(main_seq);
     return root;

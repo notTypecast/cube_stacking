@@ -11,6 +11,7 @@ class PITask : public ControllerBase {
         PITask(pin::SE3&, double, double = 2, double = 0.005);
         void set_target(pin::SE3&) override;
         Eigen::Matrix<double, 9, 1> update(std::shared_ptr<robot_dart::robots::Franka>&, pin::Model&, pin::Data&, RobotState&) override;
+        Eigen::Matrix<double, 9, 1> rest_commands(std::shared_ptr<robot_dart::robots::Franka>&, pin::Model&, pin::Data&, RobotState&) override;
 
     protected:
         double Kp;
