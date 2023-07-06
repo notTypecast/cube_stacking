@@ -10,7 +10,7 @@
 
 class PDTaskTorque : public ControllerBase {
     public:
-        PDTaskTorque(pin::SE3&, double, double = 25, double = 25, double = 0.005);
+        PDTaskTorque(pin::SE3&, double, double = 16, double = 4, double = 0.005);
         void set_target(pin::SE3&) override;
         Eigen::Matrix<double, 9, 1> update(std::shared_ptr<robot_dart::robots::Franka>&, pin::Model&, pin::Data&, RobotState&) override;
         Eigen::Matrix<double, 9, 1> rest_commands(std::shared_ptr<robot_dart::robots::Franka>&, pin::Model&, pin::Data&, RobotState&) override;

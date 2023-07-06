@@ -28,7 +28,7 @@ Eigen::Matrix<double, 9, 1> PDTaskTorque::update(std::shared_ptr<robot_dart::rob
     pin::nonLinearEffects(model, data, position, robot->velocities());
     
     if (error_wf.norm() > this->error_threshold) {
-        Eigen::Vector6d tau = this->Kp * error_wf + Kd * (-robot->body_velocity("panda_hand")) + this->Ki * this->error_sum;
+        Eigen::Vector6d tau = this->Kp * error_wf + Kd * (-robot->body_velocity(state.EEF_NAME)) + this->Ki * this->error_sum;
 
         Eigen::Matrix<double, 9, 1> controls = J2.transpose() * tau;
         controls[7] = 0;

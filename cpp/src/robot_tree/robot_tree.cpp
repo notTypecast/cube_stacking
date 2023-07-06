@@ -144,6 +144,26 @@ std::shared_ptr<BehaviorTree::Root> createBehaviorTree(const std::vector<Eigen::
         main_seq->add_child(fb);
     }
 
+    auto cancel_velocity_action = std::make_shared<BehaviorTree::ActionNode>([robot, model, &data, &task, &state]() mutable {
+        if (!state.moving) {
+            state.error_threshold = ERROR_THRESHOLD_LOW;
+            task.set_threshold(state.error_threshold);
+            pin::SE3 target = state.target;
+            target.translation()[2] += 0.1;
+            task.set_target(target);
+
+            state.moving = true;
+        }
+
+        bool res = moveToPosition(robot, model, data, task, state);
+
+        if (res) {
+            return BehaviorTree::Status::SUCCESS;
+        }
+
+        return BehaviorTree::Status::RUNNING;
+    });
+
     auto rest_action = std::make_shared<BehaviorTree::ActionNode>([robot, model, &data, &task, &state]() mutable {
         auto commands = task.rest_commands(robot, model, data, state);
 
@@ -152,6 +172,7 @@ std::shared_ptr<BehaviorTree::Root> createBehaviorTree(const std::vector<Eigen::
         return BehaviorTree::Status::RUNNING;
     });
 
+    main_seq->add_child(cancel_velocity_action);
     main_seq->add_child(rest_action);
 
     auto root = std::make_shared<BehaviorTree::Root>(main_seq);

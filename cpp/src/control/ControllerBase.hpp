@@ -16,6 +16,7 @@
 namespace pin = pinocchio;
 
 struct RobotState {
+    std::string EEF_NAME;
     int EEF_FRAME_ID;
     bool above;
     short move_state;

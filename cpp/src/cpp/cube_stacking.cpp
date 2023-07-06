@@ -36,6 +36,7 @@ int main(int argc, char** argv) {
 
     //int tmp_kp = std::stoi(argv[2]);
     //int tmp_kd = std::stoi(argv[3]);
+    //int tmp_ki = std::stoi(argv[4]);
     
     if (control_type == NONE) {
         std::cout << "Usage: ./cube_stacking [servo/torque]" << std::endl;
@@ -147,6 +148,7 @@ int main(int argc, char** argv) {
     }
 
     struct RobotState state;
+    state.EEF_NAME = "panda_hand";
     state.EEF_FRAME_ID = model.getFrameId("panda_hand");
     state.above = false;
     state.move_state = -1;
@@ -160,7 +162,7 @@ int main(int argc, char** argv) {
         root = createBehaviorTree(total_pos, robot, model, data, controller, state);
     }
     else {
-        PDTaskTorque controller(desired, dt);
+        PDTaskTorque controller(desired, dt, 100, 100, 0.1);
         root = createBehaviorTree(total_pos, robot, model, data, controller, state);
     }
 

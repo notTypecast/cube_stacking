@@ -57,7 +57,7 @@ bool moveToEndPosition(std::shared_ptr<robot_dart::robots::Franka> &robot, pin::
         else if (state.move_state == 1) {
             state.move_state = 2;
             // TODO: figure out issue with error on torque controller here
-            state.error_threshold = 0.05;//ERROR_THRESHOLD_LOW;
+            state.error_threshold = 0.035; //ERROR_THRESHOLD_LOW;
             task.set_threshold(state.error_threshold);
             task.set_target(state.target);
         }
